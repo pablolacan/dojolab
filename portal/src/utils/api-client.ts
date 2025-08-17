@@ -1,320 +1,240 @@
+// src/utils/api-client.ts
+
 import type {
-  DirectusResponse,
   DirectusFile,
   MaintenanceModeData,
-  ApiError,
   LoginCredentials,
   AuthTokens,
   DirectusUser,
-  Subscription,
-  DirectusListResponse
+  Subscription
 } from '../types';
 
+import { createApiFactory } from './api/api-factory';
+import type { ApiFactory } from './api/api-factory';
+import type { ApiServices } from './api/api-factory';
+
+/**
+ * LEGACY API CLIENT - Mantiene compatibilidad con código existente
+ * 
+ * Este cliente actúa como un wrapper/proxy hacia los nuevos servicios especializados.
+ * Mantiene la interfaz original para evitar breaking changes mientras internamente
+ * usa la nueva arquitectura modular.
+ * 
+ * @deprecated Use ApiFactory and specialized services directly for new code
+ */
 class ApiClient {
-  private baseUrl: string;
-  private accessToken: string | null = null;
-  private refreshToken: string | null = null;
-  private tokenExpiresAt: number | null = null;
-  private refreshPromise: Promise<AuthTokens> | null = null;
+  private apiFactory: ApiFactory;
+  private services: ApiServices;
 
   constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
-    this.loadTokensFromStorage();
-  }
-
-  private loadTokensFromStorage(): void {
-    this.accessToken = localStorage.getItem('directus_access_token');
-    this.refreshToken = localStorage.getItem('directus_refresh_token');
-    const expiresAt = localStorage.getItem('directus_token_expires_at');
-    this.tokenExpiresAt = expiresAt ? parseInt(expiresAt) : null;
-  }
-
-  private saveTokensToStorage(tokens: AuthTokens): void {
-    const expiresAt = Date.now() + (tokens.expires);
-    
-    localStorage.setItem('directus_access_token', tokens.access_token);
-    localStorage.setItem('directus_refresh_token', tokens.refresh_token);
-    localStorage.setItem('directus_token_expires_at', expiresAt.toString());
-    
-    this.accessToken = tokens.access_token;
-    this.refreshToken = tokens.refresh_token;
-    this.tokenExpiresAt = expiresAt;
-  }
-
-  private removeTokensFromStorage(): void {
-    localStorage.removeItem('directus_access_token');
-    localStorage.removeItem('directus_refresh_token');
-    localStorage.removeItem('directus_token_expires_at');
-    this.accessToken = null;
-    this.refreshToken = null;
-    this.tokenExpiresAt = null;
-  }
-
-  private isTokenExpired(): boolean {
-    if (!this.tokenExpiresAt) return true;
-    // Considerar el token expirado 1 minuto antes para prevenir errores
-    return Date.now() >= (this.tokenExpiresAt - 60000);
-  }
-
-  private async ensureValidToken(): Promise<void> {
-    if (!this.accessToken || !this.refreshToken) {
-      throw new Error('No tokens available');
-    }
-
-    if (this.isTokenExpired()) {
-      // Si ya hay un refresh en progreso, esperarlo
-      if (this.refreshPromise) {
-        await this.refreshPromise;
-        return;
-      }
-
-      // Iniciar nuevo refresh
-      this.refreshPromise = this.refreshAccessToken();
-      try {
-        await this.refreshPromise;
-      } finally {
-        this.refreshPromise = null;
-      }
-    }
-  }
-
-  private getHeaders(): HeadersInit {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-
-    if (this.accessToken) {
-      headers.Authorization = `Bearer ${this.accessToken}`;
-    }
-
-    return headers;
-  }
-
-  private async handleResponse<T>(response: Response): Promise<T> {
-    if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-      
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.errors?.[0]?.message || errorData.message || errorMessage;
-      } catch {
-        // Si no se puede parsear el JSON, usar el mensaje HTTP
-      }
-
-      const error: ApiError = {
-        message: errorMessage,
-        status: response.status
-      };
-      
-      throw error;
-    }
-
-    return response.json();
-  }
-
-  // Método genérico para hacer requests con auto-refresh
-  public async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    // Para endpoints públicos y de auth, no verificar token
-    const isAuthEndpoint = endpoint.startsWith('/auth/') || endpoint === '/items/maintenance_mode' || endpoint === '/server/ping';
-
-    if (!isAuthEndpoint) {
-      try {
-        await this.ensureValidToken();
-      } catch (tokenError) {
-        throw tokenError;
-      }
-    }
-
-    const url = `${this.baseUrl}${endpoint}`;
-    
-    const response = await fetch(url, {
-      headers: {
-        ...this.getHeaders(),
-        ...options.headers,
-      },
-      ...options,
+    this.apiFactory = createApiFactory(baseUrl, {
+      enableLogging: true,
+      enableRetry: true,
+      maxRetries: 3
     });
-
-    return this.handleResponse<T>(response);
+    
+    // Configurar todo automáticamente
+    this.services = this.apiFactory.setupComplete({
+      enableAuth: true,
+      enableErrorHandling: true,
+      enableHealthMonitoring: false
+    });
   }
 
-  // AUTH METHODS
+  // ==================== AUTH METHODS (LEGACY) ====================
+
   async login(credentials: LoginCredentials): Promise<{ user: DirectusUser; tokens: AuthTokens }> {
-    const response = await fetch(`${this.baseUrl}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(credentials),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.errors?.[0]?.message || 'Error de autenticación');
-    }
-
-    const result = await response.json();
-    
-    // Guardar tokens
-    this.saveTokensToStorage(result.data);
-    
-    // Obtener información del usuario
-    const user = await this.getCurrentUser();
-    
-    return {
-      user,
-      tokens: result.data
-    };
+    return this.services.auth.login(credentials);
   }
 
   async logout(): Promise<void> {
-    try {
-      if (this.refreshToken) {
-        await fetch(`${this.baseUrl}/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            refresh_token: this.refreshToken 
-          }),
-        });
-      }
-    } catch (error) {
-      console.warn('Error during logout:', error);
-    } finally {
-      this.removeTokensFromStorage();
-    }
+    return this.services.auth.logout();
   }
 
   async refreshAccessToken(): Promise<AuthTokens> {
-    if (!this.refreshToken) {
-      throw new Error('No refresh token available');
-    }
-
-    const response = await fetch(`${this.baseUrl}/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        refresh_token: this.refreshToken,
-      }),
-    });
-
-    if (!response.ok) {
-      // Si el refresh token también expiró, limpiar todo
-      this.removeTokensFromStorage();
-      throw new Error('Session expired. Please login again.');
-    }
-
-    const result = await response.json();
-    this.saveTokensToStorage(result.data);
-    
-    return result.data;
+    return this.services.auth.refreshAccessToken();
   }
 
   async getCurrentUser(): Promise<DirectusUser> {
-    // Obtener usuario con rol expandido
-    const result = await this.request<DirectusResponse<DirectusUser>>('/users/me?fields=*,role.*');
-    return result.data;
+    return this.services.auth.getCurrentUser();
   }
 
-  // Verificar si está autenticado y el token es válido
   isAuthenticated(): boolean {
-    return !!(this.accessToken && this.refreshToken && !this.isTokenExpired());
+    return this.services.auth.isAuthenticated();
   }
 
-  // Verificar si hay tokens guardados (aunque estén expirados)
   hasStoredTokens(): boolean {
-    return !!(this.accessToken && this.refreshToken);
+    return this.services.auth.hasStoredTokens();
   }
 
-  // Obtener token actual
   getAccessToken(): string | null {
-    return this.accessToken;
+    return this.apiFactory.getUtility('tokenManager').getAccessToken();
   }
 
-  // Obtener tiempo restante del token en minutos
   getTokenTimeRemaining(): number {
-    if (!this.tokenExpiresAt) return 0;
-    return Math.max(0, Math.floor((this.tokenExpiresAt - Date.now()) / 60000));
+    return this.apiFactory.getUtility('tokenManager').getTokenTimeRemaining();
   }
 
-  // Limpiar todos los tokens
   clearTokens(): void {
-    this.removeTokensFromStorage();
+    return this.services.auth.clearTokens();
   }
 
-  // Debug: Ver estado actual de tokens
   getTokenStatus() {
-    return {
-      hasAccessToken: !!this.accessToken,
-      hasRefreshToken: !!this.refreshToken,
-      tokenExpiresAt: this.tokenExpiresAt,
-      isExpired: this.isTokenExpired(),
-      timeRemaining: this.getTokenTimeRemaining()
-    };
+    return this.services.auth.getTokenStatus();
   }
 
-  // Forzar recarga de tokens desde localStorage
   reloadTokens(): void {
-    this.loadTokensFromStorage();
+    return this.services.auth.reloadTokens();
   }
 
-  // Obtener archivo por ID
+  // ==================== FILE METHODS (LEGACY) ====================
+
   async getFile(fileId: string): Promise<DirectusFile> {
-    const result = await this.request<DirectusResponse<DirectusFile>>(`/files/${fileId}`);
-    return result.data;
+    return this.services.file.getFile(fileId);
   }
 
-  // Generar URL del asset
   getAssetUrl(fileId: string): string {
-    return `${this.baseUrl}/assets/${fileId}`;
+    return this.services.file.getAssetUrl(fileId);
   }
 
-  // Generar URL del asset con transformaciones
   getAssetUrlWithTransform(
     fileId: string, 
     params: Record<string, string | number> = {}
   ): string {
-    const searchParams = new URLSearchParams();
-    
-    Object.entries(params).forEach(([key, value]) => {
-      searchParams.append(key, value.toString());
-    });
-
-    const queryString = searchParams.toString();
-    return `${this.baseUrl}/assets/${fileId}${queryString ? `?${queryString}` : ''}`;
+    return this.services.file.getAssetUrlWithTransform(fileId, params);
   }
 
-  // Maintenance Mode
+  // ==================== MAINTENANCE METHODS (LEGACY) ====================
+
   async getMaintenanceMode(): Promise<MaintenanceModeData> {
-    const result = await this.request<DirectusResponse<MaintenanceModeData>>('/items/maintenance_mode');
-    return result.data;
+    return this.services.maintenance.getMaintenanceData();
   }
 
-  // Health check
+  // ==================== HEALTH METHODS (LEGACY) ====================
+
   async ping(): Promise<{ status: string }> {
-    return this.request('/server/ping');
+    const result = await this.services.health.ping();
+    return { status: result.success ? 'ok' : 'error' };
   }
 
-  // SUBSCRIPTIONS METHODS
+  // ==================== SUBSCRIPTION METHODS (LEGACY) ====================
+
   async getSubscriptions(): Promise<Subscription[]> {
-    const result = await this.request<DirectusListResponse<Subscription>>('/items/subscriptions');
-    return result.data;
+    // Usar el servicio de subscription de la factory
+    const response = await this.services.subscription.getAll();
+    return response.data;
   }
 
   async getSubscription(id: number): Promise<Subscription> {
-    const result = await this.request<DirectusResponse<Subscription>>(`/items/subscriptions/${id}`);
-    return result.data;
+    return this.services.subscription.getById(id);
+  }
+
+  // ==================== GENERIC REQUEST METHOD (LEGACY) ====================
+
+  /**
+   * Método genérico para hacer requests - mantiene compatibilidad
+   * Internamente usa el nuevo HttpClient con manejo de auth automático
+   */
+  async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const httpClient = this.apiFactory.getUtility('httpClient');
+    const authService = this.services.auth;
+
+    try {
+      // Asegurar token válido para endpoints que no sean públicos
+      const isPublicEndpoint = this.isPublicEndpoint(endpoint);
+      if (!isPublicEndpoint) {
+        await authService.ensureValidToken();
+      }
+
+      return await httpClient.request<T>(endpoint, options);
+    } catch (error) {
+      // Manejar error con el nuevo sistema
+      const errorHandler = this.apiFactory.getUtility('errorHandler');
+      const handledError = errorHandler.handleError(error, {
+        service: 'legacy-client',
+        operation: 'request',
+        endpoint,
+        timestamp: new Date()
+      });
+      
+      throw handledError;
+    }
+  }
+
+  // ==================== UTILITY METHODS ====================
+
+  /**
+   * Verificar si un endpoint es público (no requiere autenticación)
+   */
+  private isPublicEndpoint(endpoint: string): boolean {
+    const publicEndpoints = [
+      '/auth/',
+      '/items/maintenance_mode',
+      '/server/ping',
+      '/server/health'
+    ];
+    
+    return publicEndpoints.some(publicPath => endpoint.startsWith(publicPath));
+  }
+
+  /**
+   * Obtener estadísticas de la API
+   */
+  getApiStats() {
+    return this.apiFactory.getStats();
+  }
+
+  /**
+   * Verificar estado general
+   */
+  async checkApiStatus() {
+    return this.apiFactory.checkStatus();
+  }
+
+  /**
+   * Acceso directo a servicios especializados (para migración gradual)
+   */
+  getAuthService() {
+    return this.services.auth;
+  }
+
+  getUserService() {
+    return this.services.user;
+  }
+
+  getFileService() {
+    return this.services.file;
+  }
+
+  getHealthService() {
+    return this.services.health;
+  }
+
+  getMaintenanceService() {
+    return this.services.maintenance;
+  }
+
+  getSubscriptionService() {
+    return this.services.subscription;
+  }
+
+  /**
+   * Acceso directo a la factory (para casos avanzados)
+   */
+  getApiFactory(): ApiFactory {
+    return this.apiFactory;
+  }
+
+  /**
+   * Destruir cliente y limpiar recursos
+   */
+  destroy(): void {
+    this.apiFactory.destroy();
   }
 }
 
-// Singleton instance
+// ==================== SINGLETON PATTERN (LEGACY COMPATIBILITY) ====================
+
 let apiClient: ApiClient | null = null;
 
 export const createApiClient = (baseUrl: string): ApiClient => {
@@ -331,4 +251,30 @@ export const getApiClient = (): ApiClient => {
   return apiClient;
 };
 
+// ==================== MIGRATION HELPERS ====================
+
+/**
+ * Helper para obtener servicios directamente (nueva forma recomendada)
+ */
+export const getApiServices = (): ApiServices => {
+  const client = getApiClient();
+  return {
+    auth: client.getAuthService(),
+    user: client.getUserService(),
+    file: client.getFileService(),
+    health: client.getHealthService(),
+    maintenance: client.getMaintenanceService(),
+    subscription: client.getSubscriptionService()
+  };
+};
+
+/**
+ * Helper para crear factory independiente (recomendado para nuevo código)
+ */
+export const createApiServices = (baseUrl: string): ApiServices => {
+  const factory = createApiFactory(baseUrl);
+  return factory.setupComplete();
+};
+
+// Exportar clase para compatibilidad
 export { ApiClient };

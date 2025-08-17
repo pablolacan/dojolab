@@ -1,396 +1,426 @@
-// src/services/subscriptionService.ts
+// src/services/subscriptionService.ts - ORQUESTADOR/FACADE
 
 import { getApiClient } from '../utils/api-client';
-import type { Subscription, DirectusListResponse, DirectusResponse } from '../types';
+import { SubscriptionApiService } from './api/subscription-service';
+import type { 
+  CreateSubscriptionData, 
+  UpdateSubscriptionData, 
+  SubscriptionFilters,
+  SubscriptionQueryOptions,
+  SubscriptionStats,
+  BulkOperationResult
+} from './api/subscription-service';
+import { 
+  validateCreateSubscription, 
+  validateUpdateSubscription,
+  type ValidationResult 
+} from '../utils/validators/subscription-validator';
+import { 
+  formatSubscriptionForDisplay, 
+  formatCurrency, 
+  formatRenewalDate,
+  getFormOptions 
+} from '../utils/formatters/subscription-formatter';
+import type { Subscription } from '../types';
 
-export interface SubscriptionFilters {
-  status?: string;
-  plan_type?: string;
-  billing_cycle?: string;
-  service_name?: string;
-  cost_min?: number;
-  cost_max?: number;
-  date_from?: string;
-  date_to?: string;
-}
-
-export interface SubscriptionQueryParams {
-  limit?: number;
-  offset?: number;
-  sort?: string[];
-  filters?: SubscriptionFilters;
-  search?: string;
-}
-
-export interface CreateSubscriptionData {
-  service_name: string;
-  plan_type: 'free' | 'paid';
-  billing_cycle: 'monthly' | 'yearly' | 'one_time' | 'none';
-  cost: string;
-  renewal_date: string;
-  status?: 'active' | 'pending' | 'cancelled' | 'expired' | 'trialing';
-}
-
-export interface UpdateSubscriptionData extends Partial<CreateSubscriptionData> {
-  id?: never; // Prevenir actualizar el ID
-}
-
-export interface SubscriptionStats {
-  total: number;
-  active: number;
-  pending: number;
-  cancelled: number;
-  expired: number;
-  trialing: number;
-  totalCost: number;
-  averageCost: number;
-  monthlyCost: number;
-  yearlyCost: number;
-}
-
+/**
+ * LEGACY SUBSCRIPTION SERVICE - Mantiene compatibilidad
+ * 
+ * Este servicio actúa como un facade/orquestador que combina:
+ * - SubscriptionApiService (operaciones de API)
+ * - Validation functions (validaciones)
+ * - Formatter functions (formateo)
+ * 
+ * Mantiene la interfaz original para evitar breaking changes mientras
+ * internamente usa la nueva arquitectura modular.
+ * 
+ * @deprecated Para nuevo código, usa directamente SubscriptionApiService + validators + formatters
+ */
 class SubscriptionService {
-  private getApiClient() {
-    return getApiClient();
+  private apiService: SubscriptionApiService;
+
+  constructor() {
+    const apiClient = getApiClient();
+    this.apiService = new SubscriptionApiService(apiClient.getApiFactory().getUtility('httpClient'));
   }
+
+  // ==================== LEGACY API METHODS ====================
 
   /**
    * Obtener lista de suscripciones con filtros y paginación
+   * @deprecated Use apiService.getAll() directly
    */
-  async getSubscriptions(params: SubscriptionQueryParams = {}) {
-    const searchParams = new URLSearchParams();
-    
-    // Paginación
-    if (params.limit) searchParams.append('limit', params.limit.toString());
-    if (params.offset) searchParams.append('offset', params.offset.toString());
-    
-    // Ordenamiento
-    if (params.sort && params.sort.length > 0) {
-      searchParams.append('sort', params.sort.join(','));
-    }
-    
-    // Búsqueda global
-    if (params.search) {
-      searchParams.append('search', params.search);
-    }
-    
-    // Filtros específicos
-    if (params.filters) {
-      Object.entries(params.filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-          if (key === 'cost_min') {
-            searchParams.append('filter[cost][_gte]', value.toString());
-          } else if (key === 'cost_max') {
-            searchParams.append('filter[cost][_lte]', value.toString());
-          } else if (key === 'date_from') {
-            searchParams.append('filter[date_created][_gte]', value.toString());
-          } else if (key === 'date_to') {
-            searchParams.append('filter[date_created][_lte]', value.toString());
-          } else {
-            searchParams.append(`filter[${key}][_eq]`, value.toString());
-          }
-        }
-      });
-    }
-
-    const queryString = searchParams.toString();
-    const endpoint = `/items/subscriptions${queryString ? `?${queryString}` : ''}`;
-    
-    const result = await this.getApiClient().request<DirectusListResponse<Subscription>>(endpoint);
+  async getSubscriptions(params: SubscriptionQueryOptions = {}) {
+    const result = await this.apiService.getAll(params);
     
     return {
       data: result.data,
-      meta: result.meta || { total_count: result.data.length, filter_count: result.data.length }
+      meta: result.meta
     };
   }
 
   /**
    * Obtener una suscripción por ID
+   * @deprecated Use apiService.getById() directly
    */
   async getSubscription(id: number): Promise<Subscription> {
-    const result = await this.getApiClient().request<DirectusResponse<Subscription>>(
-      `/items/subscriptions/${id}`
-    );
-    return result.data;
+    return this.apiService.getById(id);
   }
 
   /**
-   * Crear nueva suscripción
+   * Crear nueva suscripción con validación
    */
   async createSubscription(data: CreateSubscriptionData): Promise<Subscription> {
-    // Validaciones
-    this.validateSubscriptionData(data);
-    
-    const subscriptionData = {
-      ...data,
-      status: data.status || 'pending',
-      date_created: new Date().toISOString(),
-    };
+    // Validar datos antes de crear
+    const validation = validateCreateSubscription(data);
+    if (!validation.isValid) {
+      const errorMessages = validation.errors.map(e => e.message).join(', ');
+      throw new Error(`Validation errors: ${errorMessages}`);
+    }
 
-    const result = await this.getApiClient().request<DirectusResponse<Subscription>>(
-      '/items/subscriptions',
-      {
-        method: 'POST',
-        body: JSON.stringify(subscriptionData),
-      }
-    );
-    
-    return result.data;
+    return this.apiService.create(data);
   }
 
   /**
-   * Actualizar suscripción existente
+   * Actualizar suscripción existente con validación
    */
   async updateSubscription(id: number, data: UpdateSubscriptionData): Promise<Subscription> {
-    // Validaciones
-    this.validateSubscriptionData(data, true);
-    
-    const updateData = {
-      ...data,
-      date_updated: new Date().toISOString(),
-    };
+    // Validar datos antes de actualizar
+    const validation = validateUpdateSubscription(data);
+    if (!validation.isValid) {
+      const errorMessages = validation.errors.map(e => e.message).join(', ');
+      throw new Error(`Validation errors: ${errorMessages}`);
+    }
 
-    const result = await this.getApiClient().request<DirectusResponse<Subscription>>(
-      `/items/subscriptions/${id}`,
-      {
-        method: 'PATCH',
-        body: JSON.stringify(updateData),
-      }
-    );
-    
-    return result.data;
+    return this.apiService.update(id, data);
   }
 
   /**
    * Eliminar suscripción
+   * @deprecated Use apiService.delete() directly
    */
   async deleteSubscription(id: number): Promise<void> {
-    await this.getApiClient().request(`/items/subscriptions/${id}`, {
-      method: 'DELETE',
-    });
+    return this.apiService.delete(id);
   }
 
   /**
    * Eliminar múltiples suscripciones
+   * @deprecated Use apiService.bulkDelete() directly
    */
   async bulkDeleteSubscriptions(ids: number[]): Promise<void> {
-    if (ids.length === 0) {
-      throw new Error('No hay suscripciones seleccionadas para eliminar');
-    }
-
-    await this.getApiClient().request('/items/subscriptions', {
-      method: 'DELETE',
-      body: JSON.stringify(ids),
-    });
+    await this.apiService.bulkDelete(ids);
   }
 
   /**
    * Actualizar múltiples suscripciones
+   * @deprecated Use apiService.bulkUpdate() directly
    */
   async bulkUpdateSubscriptions(
     updates: { id: number; data: UpdateSubscriptionData }[]
   ): Promise<Subscription[]> {
-    if (updates.length === 0) {
-      throw new Error('No hay actualizaciones para procesar');
+    // Validar cada actualización
+    for (const update of updates) {
+      const validation = validateUpdateSubscription(update.data);
+      if (!validation.isValid) {
+        const errorMessages = validation.errors.map(e => e.message).join(', ');
+        throw new Error(`Validation errors for subscription ${update.id}: ${errorMessages}`);
+      }
     }
 
-    const bulkData = updates.map(({ id, data }) => ({
-      id,
-      ...data,
-      date_updated: new Date().toISOString(),
-    }));
-
-    const result = await this.getApiClient().request<DirectusResponse<Subscription[]>>(
-      '/items/subscriptions',
-      {
-        method: 'PATCH',
-        body: JSON.stringify(bulkData),
-      }
-    );
-    
-    return result.data;
+    return this.apiService.bulkUpdate(updates);
   }
 
   /**
    * Cambiar estado de suscripción
+   * @deprecated Use apiService.changeStatus() directly
    */
   async changeSubscriptionStatus(
     id: number, 
     status: Subscription['status']
   ): Promise<Subscription> {
-    return this.updateSubscription(id, { status });
+    return this.apiService.changeStatus(id, status);
   }
 
   /**
    * Renovar suscripción (actualizar fecha de renovación)
+   * @deprecated Use apiService.renew() directly
    */
   async renewSubscription(id: number, newRenewalDate: string): Promise<Subscription> {
-    return this.updateSubscription(id, { 
-      renewal_date: newRenewalDate,
-      status: 'active'
-    });
+    return this.apiService.renew(id, newRenewalDate);
   }
 
   /**
    * Obtener estadísticas de suscripciones
+   * @deprecated Use apiService.getStats() directly
    */
   async getSubscriptionStats(): Promise<SubscriptionStats> {
-    const { data: subscriptions } = await this.getSubscriptions({ limit: -1 }); // Obtener todas
-    
-    const stats: SubscriptionStats = {
-      total: subscriptions.length,
-      active: 0,
-      pending: 0,
-      cancelled: 0,
-      expired: 0,
-      trialing: 0,
-      totalCost: 0,
-      averageCost: 0,
-      monthlyCost: 0,
-      yearlyCost: 0,
-    };
-
-    subscriptions.forEach(subscription => {
-      // Contar por estado
-      stats[subscription.status]++;
-      
-      const cost = parseFloat(subscription.cost);
-      
-      // Solo contar costos de suscripciones activas
-      if (subscription.status === 'active' && cost > 0) {
-        stats.totalCost += cost;
-        
-        // Convertir a costo mensual para comparación
-        if (subscription.billing_cycle === 'monthly') {
-          stats.monthlyCost += cost;
-        } else if (subscription.billing_cycle === 'yearly') {
-          stats.yearlyCost += cost;
-          stats.monthlyCost += cost / 12; // Convertir anual a mensual
-        }
-      }
-    });
-
-    // Calcular promedio
-    const activePaidSubscriptions = subscriptions.filter(
-      s => s.status === 'active' && parseFloat(s.cost) > 0
-    ).length;
-    
-    stats.averageCost = activePaidSubscriptions > 0 
-      ? stats.totalCost / activePaidSubscriptions 
-      : 0;
-
-    return stats;
+    return this.apiService.getStats();
   }
 
   /**
    * Obtener suscripciones próximas a vencer
+   * @deprecated Use apiService.getExpiring() directly
    */
   async getExpiringSubscriptions(daysAhead: number = 30): Promise<Subscription[]> {
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + daysAhead);
-    
-    const { data } = await this.getSubscriptions({
-      filters: {
-        status: 'active',
-        date_to: futureDate.toISOString().split('T')[0]
-      },
-      sort: ['renewal_date']
-    });
-    
-    return data.filter(subscription => {
-      const renewalDate = new Date(subscription.renewal_date);
-      const today = new Date();
-      return renewalDate >= today && renewalDate <= futureDate;
-    });
+    return this.apiService.getExpiring(daysAhead);
   }
 
   /**
    * Buscar suscripciones por término
+   * @deprecated Use apiService.search() directly
    */
   async searchSubscriptions(searchTerm: string): Promise<Subscription[]> {
-    const { data } = await this.getSubscriptions({
-      search: searchTerm,
-      limit: 50
-    });
-    
-    return data;
+    return this.apiService.search(searchTerm);
+  }
+
+  // ==================== VALIDATION METHODS ====================
+
+  /**
+   * Validar datos de creación
+   */
+  validateCreateData(data: CreateSubscriptionData): ValidationResult {
+    return validateCreateSubscription(data);
   }
 
   /**
-   * Validar datos de suscripción
+   * Validar datos de actualización
    */
-  private validateSubscriptionData(
-    data: CreateSubscriptionData | UpdateSubscriptionData, 
-    isUpdate: boolean = false
-  ): void {
-    const errors: string[] = [];
+  validateUpdateData(data: UpdateSubscriptionData): ValidationResult {
+    return validateUpdateSubscription(data);
+  }
 
-    if (!isUpdate && !data.service_name) {
-      errors.push('El nombre del servicio es requerido');
-    }
+  // ==================== FORMATTING METHODS ====================
 
-    if (data.service_name && data.service_name.trim().length < 2) {
-      errors.push('El nombre del servicio debe tener al menos 2 caracteres');
-    }
+  /**
+   * Formatear suscripción para display en UI
+   */
+  formatForDisplay(subscription: Subscription) {
+    return formatSubscriptionForDisplay(subscription);
+  }
 
-    if (data.cost !== undefined) {
-      const cost = parseFloat(data.cost);
-      if (isNaN(cost) || cost < 0) {
-        errors.push('El costo debe ser un número válido mayor o igual a 0');
-      }
-    }
+  /**
+   * Formatear currency
+   */
+  formatCurrency(amount: string | number): string {
+    return formatCurrency(amount);
+  }
 
-    if (data.renewal_date) {
-      const renewalDate = new Date(data.renewal_date);
-      if (isNaN(renewalDate.getTime())) {
-        errors.push('La fecha de renovación debe ser válida');
-      }
-    }
-
-    if (data.plan_type && !['free', 'paid'].includes(data.plan_type)) {
-      errors.push('El tipo de plan debe ser "free" o "paid"');
-    }
-
-    if (data.billing_cycle && !['monthly', 'yearly', 'one_time', 'none'].includes(data.billing_cycle)) {
-      errors.push('El ciclo de facturación debe ser válido');
-    }
-
-    if (data.status && !['active', 'pending', 'cancelled', 'expired', 'trialing'].includes(data.status)) {
-      errors.push('El estado debe ser válido');
-    }
-
-    if (errors.length > 0) {
-      throw new Error(`Errores de validación: ${errors.join(', ')}`);
-    }
+  /**
+   * Formatear fecha de renovación
+   */
+  formatDate(dateString: string): string {
+    return formatRenewalDate(dateString);
   }
 
   /**
    * Obtener opciones para formularios
    */
   getFormOptions() {
+    return getFormOptions();
+  }
+
+  // ==================== CONVENIENCE METHODS ====================
+
+  /**
+   * Crear suscripción con validación y formateo de errores
+   */
+  async createWithValidation(data: CreateSubscriptionData): Promise<{
+    success: boolean;
+    subscription?: Subscription;
+    errors?: string[];
+  }> {
+    try {
+      const validation = this.validateCreateData(data);
+      
+      if (!validation.isValid) {
+        return {
+          success: false,
+          errors: validation.errors.map(e => e.message)
+        };
+      }
+
+      const subscription = await this.createSubscription(data);
+      
+      return {
+        success: true,
+        subscription
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errors: [error instanceof Error ? error.message : 'Unknown error']
+      };
+    }
+  }
+
+  /**
+   * Actualizar suscripción con validación y formateo de errores
+   */
+  async updateWithValidation(id: number, data: UpdateSubscriptionData): Promise<{
+    success: boolean;
+    subscription?: Subscription;
+    errors?: string[];
+  }> {
+    try {
+      const validation = this.validateUpdateData(data);
+      
+      if (!validation.isValid) {
+        return {
+          success: false,
+          errors: validation.errors.map(e => e.message)
+        };
+      }
+
+      const subscription = await this.updateSubscription(id, data);
+      
+      return {
+        success: true,
+        subscription
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errors: [error instanceof Error ? error.message : 'Unknown error']
+      };
+    }
+  }
+
+  /**
+   * Obtener suscripciones formateadas para UI
+   */
+  async getSubscriptionsFormatted(params: SubscriptionQueryOptions = {}) {
+    const result = await this.getSubscriptions(params);
+    
     return {
-      statuses: [
-        { value: 'active', label: 'Activo' },
-        { value: 'pending', label: 'Pendiente' },
-        { value: 'trialing', label: 'Prueba' },
-        { value: 'cancelled', label: 'Cancelado' },
-        { value: 'expired', label: 'Expirado' },
-      ],
-      planTypes: [
-        { value: 'free', label: 'Gratis' },
-        { value: 'paid', label: 'Pago' },
-      ],
-      billingCycles: [
-        { value: 'monthly', label: 'Mensual' },
-        { value: 'yearly', label: 'Anual' },
-        { value: 'one_time', label: 'Pago único' },
-        { value: 'none', label: 'Sin costo' },
-      ]
+      ...result,
+      data: result.data.map(subscription => ({
+        ...subscription,
+        formatted: this.formatForDisplay(subscription)
+      }))
     };
   }
+
+  /**
+   * Obtener estadísticas formateadas
+   */
+  async getFormattedStats() {
+    const stats = await this.getSubscriptionStats();
+    
+    return {
+      ...stats,
+      formatted: {
+        totalCost: this.formatCurrency(stats.totalCost),
+        averageCost: this.formatCurrency(stats.averageCost),
+        monthlyCost: this.formatCurrency(stats.monthlyCost),
+        yearlyCost: this.formatCurrency(stats.yearlyCost)
+      }
+    };
+  }
+
+  // ==================== ACCESS TO SPECIALIZED SERVICES ====================
+
+  /**
+   * Obtener acceso directo al servicio de API (para migración gradual)
+   */
+  getApiService(): SubscriptionApiService {
+    return this.apiService;
+  }
+
+  /**
+   * Obtener funciones de validación (para uso directo)
+   */
+  getValidators() {
+    return {
+      validateCreate: validateCreateSubscription,
+      validateUpdate: validateUpdateSubscription
+    };
+  }
+
+  /**
+   * Obtener funciones de formateo (para uso directo)
+   */
+  getFormatters() {
+    return {
+      formatForDisplay: formatSubscriptionForDisplay,
+      formatCurrency,
+      formatDate: formatRenewalDate,
+      getFormOptions
+    };
+  }
+
+
 }
 
-// Singleton instance
-export const subscriptionService = new SubscriptionService();
+// ==================== SINGLETON INSTANCE ====================
 
-// Export para compatibilidad
+let subscriptionServiceInstance: SubscriptionService | null = null;
+
+/**
+ * Obtener instancia singleton del servicio de suscripciones
+ * Lazy initialization - se crea solo cuando se necesita
+ */
+function getSubscriptionServiceInstance(): SubscriptionService {
+  if (!subscriptionServiceInstance) {
+    subscriptionServiceInstance = new SubscriptionService();
+  }
+  return subscriptionServiceInstance;
+}
+
+// ==================== EXPORTS ====================
+
+// Export objeto que actúa como proxy al singleton
+export const subscriptionService = {
+  // Métodos principales
+  get getSubscriptions() { return getSubscriptionServiceInstance().getSubscriptions.bind(getSubscriptionServiceInstance()); },
+  get getSubscription() { return getSubscriptionServiceInstance().getSubscription.bind(getSubscriptionServiceInstance()); },
+  get createSubscription() { return getSubscriptionServiceInstance().createSubscription.bind(getSubscriptionServiceInstance()); },
+  get updateSubscription() { return getSubscriptionServiceInstance().updateSubscription.bind(getSubscriptionServiceInstance()); },
+  get deleteSubscription() { return getSubscriptionServiceInstance().deleteSubscription.bind(getSubscriptionServiceInstance()); },
+  get bulkDeleteSubscriptions() { return getSubscriptionServiceInstance().bulkDeleteSubscriptions.bind(getSubscriptionServiceInstance()); },
+  get bulkUpdateSubscriptions() { return getSubscriptionServiceInstance().bulkUpdateSubscriptions.bind(getSubscriptionServiceInstance()); },
+  get changeSubscriptionStatus() { return getSubscriptionServiceInstance().changeSubscriptionStatus.bind(getSubscriptionServiceInstance()); },
+  get renewSubscription() { return getSubscriptionServiceInstance().renewSubscription.bind(getSubscriptionServiceInstance()); },
+  get getSubscriptionStats() { return getSubscriptionServiceInstance().getSubscriptionStats.bind(getSubscriptionServiceInstance()); },
+  get getExpiringSubscriptions() { return getSubscriptionServiceInstance().getExpiringSubscriptions.bind(getSubscriptionServiceInstance()); },
+  get searchSubscriptions() { return getSubscriptionServiceInstance().searchSubscriptions.bind(getSubscriptionServiceInstance()); },
+  
+  // Métodos de validación
+  get validateCreateData() { return getSubscriptionServiceInstance().validateCreateData.bind(getSubscriptionServiceInstance()); },
+  get validateUpdateData() { return getSubscriptionServiceInstance().validateUpdateData.bind(getSubscriptionServiceInstance()); },
+  
+  // Métodos de formateo
+  get formatForDisplay() { return getSubscriptionServiceInstance().formatForDisplay.bind(getSubscriptionServiceInstance()); },
+  get formatCurrency() { return getSubscriptionServiceInstance().formatCurrency.bind(getSubscriptionServiceInstance()); },
+  get formatDate() { return getSubscriptionServiceInstance().formatDate.bind(getSubscriptionServiceInstance()); },
+  get getFormOptions() { return getSubscriptionServiceInstance().getFormOptions.bind(getSubscriptionServiceInstance()); },
+  
+  // Métodos de conveniencia
+  get createWithValidation() { return getSubscriptionServiceInstance().createWithValidation.bind(getSubscriptionServiceInstance()); },
+  get updateWithValidation() { return getSubscriptionServiceInstance().updateWithValidation.bind(getSubscriptionServiceInstance()); },
+  get getSubscriptionsFormatted() { return getSubscriptionServiceInstance().getSubscriptionsFormatted.bind(getSubscriptionServiceInstance()); },
+  get getFormattedStats() { return getSubscriptionServiceInstance().getFormattedStats.bind(getSubscriptionServiceInstance()); },
+  
+  // Métodos de acceso a servicios especializados
+  get getApiService() { return getSubscriptionServiceInstance().getApiService.bind(getSubscriptionServiceInstance()); },
+  get getValidators() { return getSubscriptionServiceInstance().getValidators.bind(getSubscriptionServiceInstance()); },
+  get getFormatters() { return getSubscriptionServiceInstance().getFormatters.bind(getSubscriptionServiceInstance()); }
+};
+
+// Export default para compatibilidad
 export default subscriptionService;
+
+// Export types para nuevo código
+export type {
+  CreateSubscriptionData,
+  UpdateSubscriptionData,
+  SubscriptionFilters,
+  SubscriptionQueryOptions,
+  SubscriptionStats,
+  BulkOperationResult,
+  ValidationResult
+};
+
+// Export specialized services para migración gradual
+export { SubscriptionApiService } from './api/subscription-service';
+export * from '../utils/validators/subscription-validator';
+export * from '../utils/formatters/subscription-formatter';

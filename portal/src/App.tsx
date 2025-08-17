@@ -5,12 +5,15 @@ import { Layout } from "./components/layout/Layout";
 import { DashboardView } from "./components/views/DashboardView";
 import { SubscriptionsView } from "./components/views/SubscriptionsView";
 import { PWABanner } from "./components/PWABanner";
-import { useMaintenance } from "./hooks/useMaintenance";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { createApiClient } from "./utils/api-client";
 import { config } from "./utils/config";
 
+// ⭐ INICIALIZAR API CLIENT PRIMERO - ANTES DE OTROS IMPORTS
 createApiClient(config.directusUrl);
+
+// Ahora importar componentes que usan el API client
+import { useMaintenance } from "./hooks/useMaintenance";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 const DashboardContent = () => {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();

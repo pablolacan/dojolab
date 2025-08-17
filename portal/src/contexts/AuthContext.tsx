@@ -6,6 +6,8 @@ interface AuthContextType extends AuthState {
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  refreshToken: () => Promise<void>;
+  getTokenTimeRemaining: () => number;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -15,7 +17,8 @@ type AuthAction =
   | { type: 'AUTH_SUCCESS'; payload: { user: DirectusUser; tokens: AuthTokens } }
   | { type: 'AUTH_FAILURE'; payload: string }
   | { type: 'AUTH_LOGOUT' }
-  | { type: 'SET_LOADING'; payload: boolean };
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'TOKEN_REFRESHED'; payload: AuthTokens };
 
 const authReducer = (state: AuthState, action: AuthAction): AuthState => {
   switch (action.type) {
@@ -44,6 +47,12 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
       };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
+    case 'TOKEN_REFRESHED':
+      return {
+        ...state,
+        tokens: action.payload,
+        isAuthenticated: true
+      };
     default:
       return state;
   }
@@ -63,12 +72,21 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
+  // Obtener AuthService una vez al inicio
+  const getAuthService = () => {
+    const apiClient = getApiClient();
+    return apiClient.getAuthService();
+  };
+
+  /**
+   * Iniciar sesión usando AuthService
+   */
   const login = async (credentials: LoginCredentials): Promise<void> => {
     try {
       dispatch({ type: 'AUTH_START' });
       
-      const apiClient = getApiClient();
-      const { user, tokens } = await apiClient.login(credentials);
+      const authService = getAuthService();
+      const { user, tokens } = await authService.login(credentials);
       
       dispatch({ 
         type: 'AUTH_SUCCESS', 
@@ -81,10 +99,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  /**
+   * Cerrar sesión usando AuthService
+   */
   const logout = async (): Promise<void> => {
     try {
-      const apiClient = getApiClient();
-      await apiClient.logout();
+      const authService = getAuthService();
+      await authService.logout();
     } catch (error) {
       console.warn('Error during logout:', error);
     } finally {
@@ -92,85 +113,149 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  /**
+   * Refrescar token manualmente
+   */
+  const refreshToken = async (): Promise<void> => {
+    try {
+      const authService = getAuthService();
+      const newTokens = await authService.refreshAccessToken();
+      
+      dispatch({ 
+        type: 'TOKEN_REFRESHED', 
+        payload: newTokens 
+      });
+    } catch (error) {
+      console.error('Error refreshing token:', error);
+      dispatch({ type: 'AUTH_LOGOUT' });
+      throw error;
+    }
+  };
+
+  /**
+   * Obtener tiempo restante del token
+   */
+  const getTokenTimeRemaining = (): number => {
+    try {
+      const authService = getAuthService();
+      const tokenStatus = authService.getTokenStatus();
+      return tokenStatus.timeRemaining;
+    } catch (error) {
+      return 0;
+    }
+  };
+
+  /**
+   * Verificar autenticación usando AuthService
+   * ✅ Ahora mucho más simple - delegamos la lógica compleja al AuthService
+   */
   const checkAuth = async (): Promise<void> => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const apiClient = getApiClient();
+      const authService = getAuthService();
       
-      // Verificar tokens almacenados
-      const storedAccessToken = localStorage.getItem('directus_access_token');
-      const storedRefreshToken = localStorage.getItem('directus_refresh_token');
+      // ✅ Una sola llamada que maneja todo:
+      // - Verificación de tokens
+      // - Reload de tokens
+      // - Refresh automático si es necesario
+      // - Obtención de usuario
+      // - Validación de permisos de admin
+      const { user, isValid } = await authService.checkAuthentication();
       
-      if (!storedAccessToken || !storedRefreshToken) {
-        dispatch({ type: 'AUTH_LOGOUT' });
-        return;
-      }
-
-      // Verificar que el ApiClient tenga los tokens cargados
-      const apiClientStatus = apiClient.getTokenStatus();
-      if (!apiClientStatus.hasAccessToken || !apiClientStatus.hasRefreshToken) {
-        apiClient.reloadTokens();
-      }
-
-      try {
-        const user = await apiClient.getCurrentUser();
-        
-        // Verificar permisos de admin
-        let isAdmin = false;
-        
-        if (typeof user.role === 'object') {
-          const adminChecks = [
-            user.role.admin_access === true,
-            user.role.name?.toLowerCase().includes('administrator'),
-            user.role.name?.toLowerCase().includes('admin'),
-            user.role.description?.includes('admin'),
-            user.role.id === '7690c14b-4036-4cf9-9af7-9b3215a6cf58'
-          ];
-          
-          isAdmin = adminChecks.some(check => check);
-        } else if (typeof user.role === 'string') {
-          isAdmin = user.role === '7690c14b-4036-4cf9-9af7-9b3215a6cf58';
-        }
-        
-        if (!isAdmin) {
-          await logout();
-          throw new Error('Acceso denegado: Se requieren permisos de administrador');
-        }
+      if (isValid && user) {
+        // Crear tokens mock para mantener compatibilidad con el estado
+        const tokenManager = getApiClient().getApiFactory().getUtility('tokenManager');
+        const mockTokens: AuthTokens = {
+          access_token: tokenManager.getAccessToken() || '',
+          expires: tokenManager.getTokenTimeRemaining() * 60 * 1000, // convertir a ms
+          refresh_token: tokenManager.getRefreshToken() || ''
+        };
 
         dispatch({ 
           type: 'AUTH_SUCCESS', 
-          payload: { 
-            user, 
-            tokens: { 
-              access_token: apiClient.getAccessToken() || '', 
-              expires: 0, 
-              refresh_token: '' 
-            } 
-          } 
+          payload: { user, tokens: mockTokens } 
         });
-      } catch (authError) {
-        apiClient.clearTokens();
+      } else {
         dispatch({ type: 'AUTH_LOGOUT' });
       }
     } catch (error) {
       console.error('Error in checkAuth:', error);
       dispatch({ type: 'AUTH_LOGOUT' });
+      
+      // Si el error es de permisos, lo propagamos para mostrar mensaje específico
+      if (error instanceof Error && error.message.includes('Administrator permissions required')) {
+        throw error;
+      }
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
-  // Verificar autenticación al montar el componente
+  /**
+   * Configurar auto-refresh y verificación inicial
+   */
   useEffect(() => {
-    checkAuth();
+    let mounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        // Configurar auto-refresh de tokens
+        const authService = getAuthService();
+        authService.startTokenAutoRefresh();
+        
+        // Verificar autenticación inicial
+        if (mounted) {
+          await checkAuth();
+        }
+      } catch (error) {
+        if (mounted) {
+          console.error('Error during auth initialization:', error);
+          dispatch({ type: 'AUTH_LOGOUT' });
+        }
+      }
+    };
+
+    initializeAuth();
+
+    // Cleanup
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  /**
+   * Escuchar cambios de visibilidad para re-verificar auth
+   */
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && state.isAuthenticated) {
+        try {
+          // Re-verificar autenticación cuando el usuario regresa a la pestaña
+          const authService = getAuthService();
+          const tokenStatus = authService.getTokenStatus();
+          
+          // Si el token está próximo a expirar, refrescarlo
+          if (tokenStatus.timeRemaining < 5) { // Menos de 5 minutos
+            await refreshToken();
+          }
+        } catch (error) {
+          console.warn('Error re-checking auth on visibility change:', error);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [state.isAuthenticated]);
 
   const value: AuthContextType = {
     ...state,
     login,
     logout,
     checkAuth,
+    refreshToken,
+    getTokenTimeRemaining,
   };
 
   return (
