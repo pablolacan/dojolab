@@ -96,94 +96,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      console.log('🔄 Iniciando checkAuth...');
-      
       const apiClient = getApiClient();
       
-      // Debug: Log de tokens en localStorage
+      // Verificar tokens almacenados
       const storedAccessToken = localStorage.getItem('directus_access_token');
       const storedRefreshToken = localStorage.getItem('directus_refresh_token');
-      const storedExpiresAt = localStorage.getItem('directus_token_expires_at');
       
-      console.log('🔍 Verificando tokens almacenados:', {
-        hasAccessToken: !!storedAccessToken,
-        hasRefreshToken: !!storedRefreshToken,
-        expiresAt: storedExpiresAt,
-        isExpired: storedExpiresAt ? Date.now() >= (parseInt(storedExpiresAt) - 60000) : true,
-        currentTime: Date.now()
-      });
-      
-      // Si no hay tokens guardados, logout
       if (!storedAccessToken || !storedRefreshToken) {
-        console.log('❌ No hay tokens guardados');
         dispatch({ type: 'AUTH_LOGOUT' });
         return;
       }
 
-      console.log('✅ Tokens encontrados en localStorage');
-      
-      // Verificar que el ApiClient también tenga los tokens cargados
+      // Verificar que el ApiClient tenga los tokens cargados
       const apiClientStatus = apiClient.getTokenStatus();
-      console.log('🔧 Estado del ApiClient:', apiClientStatus);
-      
-      // Si el ApiClient no tiene los tokens, forzar recarga
       if (!apiClientStatus.hasAccessToken || !apiClientStatus.hasRefreshToken) {
-        console.log('⚠️ ApiClient no tiene tokens cargados, forzando recarga...');
         apiClient.reloadTokens();
-        console.log('🔄 Tokens recargados, nuevo estado:', apiClient.getTokenStatus());
       }
 
       try {
-        console.log('🌐 Intentando obtener usuario actual...');
         const user = await apiClient.getCurrentUser();
         
-        console.log('✅ Usuario obtenido (RAW):', user);
-        console.log('📧 Email:', user.email);
-        console.log('🎭 Role completo:', user.role);
-        
-        // Verificar que el usuario sea admin
+        // Verificar permisos de admin
         let isAdmin = false;
         
         if (typeof user.role === 'object') {
-          // Múltiples formas de detectar admin en Directus:
           const adminChecks = [
-            // 1. Campo admin_access explícito
             user.role.admin_access === true,
-            // 2. Nombre del rol contiene "Administrator" o "Admin"
             user.role.name?.toLowerCase().includes('administrator'),
             user.role.name?.toLowerCase().includes('admin'),
-            // 3. Descripción contiene admin
             user.role.description?.includes('admin'),
-            // 4. ID específico del rol de admin (puedes ajustar si conoces el UUID)
             user.role.id === '7690c14b-4036-4cf9-9af7-9b3215a6cf58'
           ];
           
           isAdmin = adminChecks.some(check => check);
-          
-          console.log('🔍 Verificaciones de admin:', {
-            admin_access: user.role.admin_access,
-            name: user.role.name,
-            nameIncludesAdmin: user.role.name?.toLowerCase().includes('admin'),
-            description: user.role.description,
-            roleId: user.role.id,
-            isSpecificAdminId: user.role.id === '7690c14b-4036-4cf9-9af7-9b3215a6cf58'
-          });
-          
         } else if (typeof user.role === 'string') {
-          // Si solo tenemos el UUID del rol de admin conocido
           isAdmin = user.role === '7690c14b-4036-4cf9-9af7-9b3215a6cf58';
-          console.log('⚠️ Role es UUID, verificando si es el admin UUID...');
         }
         
-        console.log('🔐 Es admin?', isAdmin);
-        
         if (!isAdmin) {
-          console.log('❌ Usuario sin permisos de admin');
           await logout();
           throw new Error('Acceso denegado: Se requieren permisos de administrador');
         }
 
-        console.log('🎉 Autenticación exitosa');
         dispatch({ 
           type: 'AUTH_SUCCESS', 
           payload: { 
@@ -196,14 +150,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           } 
         });
       } catch (authError) {
-        console.log('❌ Error en autenticación:', authError);
-        
-        // Si falla la autenticación, limpiar tokens y hacer logout
         apiClient.clearTokens();
         dispatch({ type: 'AUTH_LOGOUT' });
       }
     } catch (error) {
-      console.error('💥 Error crítico en checkAuth:', error);
+      console.error('Error in checkAuth:', error);
       dispatch({ type: 'AUTH_LOGOUT' });
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });

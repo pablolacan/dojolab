@@ -55,17 +55,6 @@ const validateConfig = () => {
     throw new Error('VITE_DIRECTUS_URL must be a valid URL');
   }
 
-  // Log de configuración en desarrollo
-  if (config.isDevelopment) {
-    console.log('🔧 Configuración cargada:', {
-      directusUrl: config.directusUrl,
-      appName: config.appName,
-      appVersion: config.appVersion,
-      isDevelopment: config.isDevelopment,
-      allowedIPsCount: config.maintenanceAllowedIPs.length,
-      allowedIPs: config.maintenanceAllowedIPs
-    });
-  }
 };
 
 validateConfig();

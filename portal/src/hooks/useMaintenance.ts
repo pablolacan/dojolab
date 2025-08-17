@@ -17,8 +17,8 @@ interface UseMaintenanceReturn {
 }
 
 export const useMaintenance = (
-  checkInterval: number = 5 * 60 * 1000, // Verificar cada 5 minutos
-  enablePolling: boolean = true
+  checkInterval: number = 10 * 60 * 1000, // Verificar cada 10 minutos (reducido)
+  enablePolling: boolean = false // Deshabilitado por defecto
 ): UseMaintenanceReturn => {
   const [maintenanceData, setMaintenanceData] = useState<MaintenanceModeData | null>(null);
   const [isActive, setIsActive] = useState(false);
@@ -41,19 +41,9 @@ export const useMaintenance = (
       setIsAllowedIP(status.isAllowedIP);
       setUserIP(status.userIP);
 
-      // Log para desarrollo
-      if (import.meta.env.VITE_DEV_MODE === 'true') {
-        console.log('🔧 Estado de mantenimiento actualizado:', {
-          isActive: status.isActive,
-          shouldShow: status.shouldShowMaintenance,
-          isAllowed: status.isAllowedIP,
-          userIP: status.userIP
-        });
-      }
-
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error loading maintenance mode');
-      console.error('❌ Error en useMaintenance:', err);
+      console.error('Error en useMaintenance:', err);
     } finally {
       setLoading(false);
     }
@@ -64,12 +54,12 @@ export const useMaintenance = (
     fetchMaintenanceStatus(true);
   }, [fetchMaintenanceStatus]);
 
-  // Polling interval
+  // Polling interval solo si está habilitado
   useEffect(() => {
     if (!enablePolling) return;
 
     const interval = setInterval(() => {
-      fetchMaintenanceStatus(false); // Usar cache si está disponible
+      fetchMaintenanceStatus(false);
     }, checkInterval);
 
     return () => clearInterval(interval);
@@ -92,8 +82,10 @@ export const useMaintenance = (
     }
   }, []);
 
-  // Escuchar cuando el usuario regresa a la pestaña
+  // Escuchar cuando el usuario regresa a la pestaña (solo si hay polling)
   useEffect(() => {
+    if (!enablePolling) return;
+    
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchMaintenanceStatus(false);
@@ -102,19 +94,17 @@ export const useMaintenance = (
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchMaintenanceStatus]);
+  }, [fetchMaintenanceStatus, enablePolling]);
 
-  // Escuchar cambios de conexión
+  // Escuchar cambios de conexión (opcional)
   useEffect(() => {
     const handleOnline = () => {
       if (navigator.onLine) {
-        console.log('🌐 Conexión restaurada, verificando mantenimiento...');
         fetchMaintenanceStatus(true);
       }
     };
 
     const handleOffline = () => {
-      console.log('📵 Conexión perdida');
       setError('Sin conexión a internet');
     };
 

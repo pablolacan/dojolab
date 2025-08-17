@@ -28,12 +28,10 @@ export function usePWA(): PWAState & PWAActions {
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      console.log('💾 PWA instalable detectada');
       setInstallPrompt(e as BeforeInstallPromptEvent);
     };
 
     const handleAppInstalled = () => {
-      console.log('✅ PWA instalada correctamente');
       setIsInstalled(true);
       setInstallPrompt(null);
       localStorage.removeItem('pwa-install-dismissed');
@@ -79,16 +77,13 @@ export function usePWA(): PWAState & PWAActions {
         scope: '/'
       });
       
-      console.log('🔧 Service Worker registrado correctamente');
       setRegistration(reg);
 
       reg.addEventListener('updatefound', () => {
-        console.log('🔄 Nueva versión del Service Worker encontrada');
         const newWorker = reg.installing;
         if (newWorker) {
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('✅ Nueva versión instalada, actualización disponible');
               setHasUpdate(true);
             }
           });

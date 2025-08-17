@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { MaintenanceMode } from "./components/MaintenanceMode";
 import { Login } from "./components/Login";
 import { Layout } from "./components/layout/Layout";
@@ -20,30 +20,8 @@ const DashboardContent = () => {
     isAllowedIP,
     userIP,
     loading: maintenanceLoading, 
-    error: maintenanceError,
-    debugInfo 
-  } = useMaintenance();
+    error: maintenanceError  } = useMaintenance();
   const [activeView, setActiveView] = useState('home');
-
-  useEffect(() => {
-    if (config.isDevelopment && isAuthenticated) {
-      console.log('🚀 Dashboard iniciado', {
-        apiUrl: config.directusUrl,
-        version: config.appVersion,
-        user: user?.email,
-        shouldShowMaintenance,
-        isAllowedIP,
-        userIP
-      });
-    }
-  }, [shouldShowMaintenance, isAuthenticated, user, isAllowedIP, userIP]);
-
-  useEffect(() => {
-    if (config.isDevelopment) {
-      (window as any).maintenanceDebug = debugInfo;
-      console.log('🔧 Para debug de mantenimiento, ejecuta: window.maintenanceDebug()');
-    }
-  }, [debugInfo]);
 
   if (authLoading) {
     return (
@@ -115,27 +93,6 @@ const DashboardContent = () => {
         return <DashboardView user={user} />;
       case 'subscriptions':
         return <SubscriptionsView />;
-      case 'maintenance':
-        return (
-          <div className="text-center py-12">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Modo Mantenimiento</h2>
-            <p className="text-gray-600">Gestión del modo mantenimiento en desarrollo...</p>
-            {config.isDevelopment && (
-              <div className="mt-6 p-4 bg-gray-100 rounded-2xl text-left max-w-md mx-auto">
-                <h3 className="font-semibold mb-2">Debug Info:</h3>
-                <p className="text-sm text-gray-600">Tu IP: {userIP}</p>
-                <p className="text-sm text-gray-600">¿IP Permitida?: {isAllowedIP ? 'Sí' : 'No'}</p>
-                <p className="text-sm text-gray-600">¿Mostrar Mantenimiento?: {shouldShowMaintenance ? 'Sí' : 'No'}</p>
-                <button 
-                  onClick={() => debugInfo().then(console.table)}
-                  className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs"
-                >
-                  Ver Debug Completo
-                </button>
-              </div>
-            )}
-          </div>
-        );
       case 'settings':
         return (
           <div className="text-center py-12">

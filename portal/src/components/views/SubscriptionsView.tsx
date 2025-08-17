@@ -1,7 +1,7 @@
-// src/components/views/SubscriptionsView.tsx - Versión completa con CRUD
+// src/components/views/SubscriptionsView.tsx - Versión optimizada sin loops
 
-import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { motion } from "framer-motion";
 import { subscriptionService } from "../../services/subscriptionService";
 import type { Subscription } from "../../types";
 import type { 
@@ -40,17 +40,15 @@ export const SubscriptionsView = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Estados de filtrado y búsqueda
+  // Estados de filtrado y búsqueda - memoizados para evitar re-renders
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState<SubscriptionFilters>({});
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
 
-  // Cargar datos iniciales
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = useCallback(async () => {
+  // Función de fetch optimizada con useCallback
+  const fetchData = useCallback(async (force = false) => {
+    if (loading && !force) return; // Evitar múltiples llamadas concurrentes
+    
     try {
       setLoading(true);
       setError(null);
@@ -64,31 +62,34 @@ export const SubscriptionsView = () => {
       setStats(statsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error loading data');
-      console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, filters]);
+  }, [searchTerm, filters]); // Solo depende de searchTerm y filters
 
-  // Refetch cuando cambian filtros o búsqueda
+  // Cargar datos iniciales solo una vez
   useEffect(() => {
+    fetchData(true);
+  }, []); // Array vacío para ejecutar solo al montar
+
+  // Búsqueda con debounce para evitar llamadas excesivas
+  useEffect(() => {
+    if (subscriptions.length === 0) return; // No buscar si no hay datos iniciales
+    
     const timeoutId = setTimeout(() => {
-      if (!loading) {
-        fetchData();
-      }
+      fetchData();
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm, filters, fetchData, loading]);
+  }, [searchTerm, filters]); // Removido fetchData de las dependencias
 
   // Handlers para CRUD operations
   const handleCreate = async (data: CreateSubscriptionData) => {
     try {
       setIsSubmitting(true);
       await subscriptionService.createSubscription(data);
-      await fetchData();
+      await fetchData(true);
       setViewMode('list');
-      // Mostrar notificación de éxito
     } catch (error) {
       console.error('Error creating subscription:', error);
       throw error;
@@ -102,13 +103,11 @@ export const SubscriptionsView = () => {
     
     try {
       setIsSubmitting(true);
-      // Convertir CreateSubscriptionData a UpdateSubscriptionData
       const updateData: UpdateSubscriptionData = { ...data };
       await subscriptionService.updateSubscription(selectedSubscription.id, updateData);
-      await fetchData();
+      await fetchData(true);
       setViewMode('list');
       setSelectedSubscription(null);
-      // Mostrar notificación de éxito
     } catch (error) {
       console.error('Error updating subscription:', error);
       throw error;
@@ -117,7 +116,6 @@ export const SubscriptionsView = () => {
     }
   };
 
-  // Wrapper para el submit del formulario
   const handleFormSubmit = async (data: CreateSubscriptionData) => {
     if (viewMode === 'create') {
       await handleCreate(data);
@@ -140,11 +138,10 @@ export const SubscriptionsView = () => {
         await subscriptionService.bulkDeleteSubscriptions(itemsToDelete);
       }
       
-      await fetchData();
+      await fetchData(true);
       setSelectedItems([]);
       setShowDeleteModal(false);
       setSelectedSubscription(null);
-      // Mostrar notificación de éxito
     } catch (error) {
       console.error('Error deleting subscription(s):', error);
       setError(error instanceof Error ? error.message : 'Error deleting items');
@@ -156,8 +153,7 @@ export const SubscriptionsView = () => {
   const handleStatusChange = async (id: number, status: Subscription['status']) => {
     try {
       await subscriptionService.changeSubscriptionStatus(id, status);
-      await fetchData();
-      // Mostrar notificación de éxito
+      await fetchData(true);
     } catch (error) {
       console.error('Error changing status:', error);
       setError(error instanceof Error ? error.message : 'Error changing status');
@@ -193,22 +189,22 @@ export const SubscriptionsView = () => {
     setShowDeleteModal(false);
   };
 
-  // Utilidades
-  const formatCurrency = (amount: string) => {
+  // Utilidades memoizadas
+  const formatCurrency = useCallback((amount: string) => {
     const num = parseFloat(amount);
     return num === 0 ? 'Gratis' : `$${num.toFixed(2)}`;
-  };
+  }, []);
 
-  const formatDate = (dateString: string) => {
+  const formatDate = useCallback((dateString: string) => {
     return new Date(dateString).toLocaleDateString('es-ES', {
       year: 'numeric',
       month: 'long',
       day: 'numeric'
     });
-  };
+  }, []);
 
-  // Configuración de estadísticas
-  const statsConfig = stats ? [
+  // Configuración de estadísticas memoizada
+  const statsConfig = useMemo(() => stats ? [
     {
       label: "Total",
       value: stats.total,
@@ -229,10 +225,10 @@ export const SubscriptionsView = () => {
       value: `$${stats.totalCost.toFixed(2)}`,
       icon: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" /></svg>
     }
-  ] : [];
+  ] : [], [stats]);
 
-  // Configuración de columnas
-  const columns = [
+  // Configuración de columnas memoizada
+  const columns = useMemo(() => [
     {
       id: 'service',
       label: 'Servicio',
@@ -330,10 +326,10 @@ export const SubscriptionsView = () => {
         </div>
       )
     }
-  ];
+  ], [formatCurrency, formatDate, handleStatusChange, openViewModal, openEditModal, openDeleteModal]);
 
-  // Actions del header
-  const headerActions = (
+  // Actions del header memoizado
+  const headerActions = useMemo(() => (
     <div className="flex items-center space-x-3">
       {selectedItems.length > 0 && (
         <button 
@@ -348,8 +344,9 @@ export const SubscriptionsView = () => {
       )}
       
       <button 
-        onClick={fetchData}
-        className="bg-gray-100 text-gray-700 px-4 py-2 rounded-full hover:bg-gray-200 transition-all duration-200 flex items-center space-x-2 text-sm"
+        onClick={() => fetchData(true)}
+        disabled={loading}
+        className="bg-gray-100 text-gray-700 px-4 py-2 rounded-full hover:bg-gray-200 transition-all duration-200 flex items-center space-x-2 text-sm disabled:opacity-50"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -367,7 +364,7 @@ export const SubscriptionsView = () => {
         <span>Nueva Suscripción</span>
       </button>
     </div>
-  );
+  ), [selectedItems.length, loading, fetchData, openDeleteModal, openCreateModal]);
 
   if (loading && subscriptions.length === 0) {
     return (
@@ -382,7 +379,7 @@ export const SubscriptionsView = () => {
       <div className="flex items-center justify-center h-64">
         <ErrorState 
           message={error}
-          onRetry={fetchData}
+          onRetry={() => fetchData(true)}
         />
       </div>
     );
@@ -426,7 +423,7 @@ export const SubscriptionsView = () => {
           <div className="flex gap-2">
             <select
               value={filters.status || ''}
-              onChange={(e) => setFilters((prev: SubscriptionFilters) => ({ ...prev, status: e.target.value || undefined }))}
+              onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value || undefined }))}
               className="px-3 py-2 border border-gray-200 rounded-full text-sm focus:outline-none focus:border-[#c9f31d]"
             >
               <option value="">Todos los estados</option>
@@ -439,7 +436,7 @@ export const SubscriptionsView = () => {
             
             <select
               value={filters.plan_type || ''}
-              onChange={(e) => setFilters((prev: SubscriptionFilters) => ({ ...prev, plan_type: e.target.value || undefined }))}
+              onChange={(e) => setFilters(prev => ({ ...prev, plan_type: e.target.value || undefined }))}
               className="px-3 py-2 border border-gray-200 rounded-full text-sm focus:outline-none focus:border-[#c9f31d]"
             >
               <option value="">Todos los planes</option>
@@ -650,22 +647,6 @@ export const SubscriptionsView = () => {
           </p>
         </div>
       </Modal>
-
-      {/* Loading overlay */}
-      <AnimatePresence>
-        {loading && subscriptions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center"
-          >
-            <div className="bg-white rounded-2xl p-6 shadow-card">
-              <LoadingState message="Actualizando datos..." />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

@@ -49,24 +49,20 @@ class MaintenanceService {
           const ip = data.ip || data.query || data.ip_address;
           
           if (ip && this.isValidIP(ip)) {
-            console.log(`🌐 IP obtenida desde ${service}:`, ip);
             return ip;
           }
         } catch (error) {
-          console.warn(`⚠️ Error obteniendo IP desde ${service}:`, error);
           continue;
         }
       }
 
       // Fallback: IP local para desarrollo
       if (config.isDevelopment) {
-        console.log('🏠 Usando IP local para desarrollo');
         return '127.0.0.1';
       }
 
       throw new Error('No se pudo obtener la IP del usuario');
     } catch (error) {
-      console.error('❌ Error obteniendo IP:', error);
       // En caso de error, asumir que NO está en la lista permitida
       return 'unknown';
     }
@@ -88,18 +84,11 @@ class MaintenanceService {
     const allowedIPs = config.maintenanceAllowedIPs;
     
     if (!allowedIPs || allowedIPs.length === 0) {
-      console.log('📝 No hay IPs permitidas configuradas');
       return false;
     }
 
     // Verificar coincidencia exacta
     const isAllowed = allowedIPs.includes(userIP);
-    
-    console.log('🔍 Verificación de IP:', {
-      userIP,
-      allowedIPs,
-      isAllowed
-    });
 
     return isAllowed;
   }
@@ -144,13 +133,6 @@ class MaintenanceService {
       const isAllowedIP = this.isIPAllowed(userIP);
       const shouldShowMaintenance = maintenanceData.is_active && !isAllowedIP;
 
-      console.log('🔧 Estado de mantenimiento:', {
-        isActive: maintenanceData.is_active,
-        userIP,
-        isAllowedIP,
-        shouldShowMaintenance
-      });
-
       return {
         isActive: maintenanceData.is_active,
         data: maintenanceData,
@@ -160,11 +142,8 @@ class MaintenanceService {
       };
 
     } catch (error) {
-      console.error('❌ Error obteniendo estado de mantenimiento:', error);
-      
       // Fallback con cache si está disponible
       if (this.cache.data && this.cache.userIP) {
-        console.warn('⚠️ Usando cache como fallback');
         const isAllowedIP = this.isIPAllowed(this.cache.userIP);
         
         return {
@@ -195,7 +174,6 @@ class MaintenanceService {
       const apiClient = getApiClient();
       return await apiClient.getMaintenanceMode();
     } catch (error) {
-      console.error('❌ Error obteniendo datos de mantenimiento:', error);
       throw error;
     }
   }

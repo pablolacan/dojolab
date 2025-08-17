@@ -27,13 +27,6 @@ class ApiClient {
     this.refreshToken = localStorage.getItem('directus_refresh_token');
     const expiresAt = localStorage.getItem('directus_token_expires_at');
     this.tokenExpiresAt = expiresAt ? parseInt(expiresAt) : null;
-    
-    console.log('🔄 Tokens cargados desde localStorage:', {
-      hasAccessToken: !!this.accessToken,
-      hasRefreshToken: !!this.refreshToken,
-      tokenExpiresAt: this.tokenExpiresAt,
-      currentTime: Date.now()
-    });
   }
 
   private saveTokensToStorage(tokens: AuthTokens): void {
@@ -126,19 +119,11 @@ class ApiClient {
   ): Promise<T> {
     // Para endpoints públicos y de auth, no verificar token
     const isAuthEndpoint = endpoint.startsWith('/auth/') || endpoint === '/items/maintenance_mode' || endpoint === '/server/ping';
-    
-    console.log(`🌐 API Request: ${endpoint}`, {
-      isAuthEndpoint,
-      hasAccessToken: !!this.accessToken,
-      hasRefreshToken: !!this.refreshToken,
-      isExpired: this.isTokenExpired()
-    });
 
     if (!isAuthEndpoint) {
       try {
         await this.ensureValidToken();
       } catch (tokenError) {
-        console.error('❌ Token validation failed:', tokenError);
         throw tokenError;
       }
     }
@@ -151,12 +136,6 @@ class ApiClient {
         ...options.headers,
       },
       ...options,
-    });
-
-    console.log(`📡 Response for ${endpoint}:`, {
-      status: response.status,
-      ok: response.ok,
-      statusText: response.statusText
     });
 
     return this.handleResponse<T>(response);
@@ -239,15 +218,8 @@ class ApiClient {
   }
 
   async getCurrentUser(): Promise<DirectusUser> {
-    console.log('🔍 Obteniendo usuario actual...');
-    
     // Obtener usuario con rol expandido
     const result = await this.request<DirectusResponse<DirectusUser>>('/users/me?fields=*,role.*');
-    
-    console.log('📦 Respuesta completa de /users/me:', result);
-    console.log('👤 Datos del usuario:', result.data);
-    console.log('🎭 Role expandido:', result.data.role);
-    
     return result.data;
   }
 
