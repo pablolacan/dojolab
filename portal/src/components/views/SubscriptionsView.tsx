@@ -1,22 +1,35 @@
-// src/components/views/SubscriptionsView.tsx - Versión optimizada sin loops
+// src/components/views/SubscriptionsView.tsx - Versión migrada a servicios especializados
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
-import { subscriptionService } from "../../services/subscriptionService";
-import type { Subscription } from "../../types";
+
+// ✅ NUEVA ARQUITECTURA - Servicios especializados
+import { getApiServices } from "../../utils/api-client";
 import type { 
-  SubscriptionFilters, 
   CreateSubscriptionData, 
   UpdateSubscriptionData,
+  SubscriptionFilters,
   SubscriptionStats
-} from "../../services/subscriptionService";
+} from "../../services/api/subscription-service";
+
+// ✅ Validadores especializados
 import { 
-  getStatusText, 
-  getPlanTypeText, 
-  getBillingCycleText, 
+  validateCreateSubscription, 
+  validateUpdateSubscription
+} from "../../utils/validators/subscription-validator";
+
+// ✅ Formatters especializados  
+import { 
+  formatStatus, 
+  formatPlanType, 
+  formatBillingCycle, 
   getStatusVariant, 
-  getPlanTypeVariant 
-} from "../../utils/text-mappings";
+  getPlanTypeVariant,
+  formatCurrency,
+  formatRenewalDate
+} from "../../utils/formatters/subscription-formatter";
+
+import type { Subscription } from "../../types";
 import { DataTable } from "../ui/DataTable";
 import { Modal } from "../ui/Modal";
 import { StatsGrid } from "../ui/StatsGrid";
@@ -28,6 +41,9 @@ import { SubscriptionForm } from "../forms/SubscriptionForm";
 type ViewMode = 'list' | 'create' | 'edit' | 'view';
 
 export const SubscriptionsView = () => {
+  // ✅ Obtener servicios especializados
+  const { subscription: apiService } = useMemo(() => getApiServices(), []);
+
   // Estados principales
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [stats, setStats] = useState<SubscriptionStats | null>(null);
@@ -40,54 +56,68 @@ export const SubscriptionsView = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Estados de filtrado y búsqueda - memoizados para evitar re-renders
+  // Estados de filtrado y búsqueda
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState<SubscriptionFilters>({});
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
 
-  // Función de fetch optimizada con useCallback
+  // ✅ Función de fetch optimizada usando nuevo servicio
   const fetchData = useCallback(async (force = false) => {
-    if (loading && !force) return; // Evitar múltiples llamadas concurrentes
+    if (loading && !force) return;
     
     try {
       setLoading(true);
       setError(null);
       
-      const [subscriptionsData, statsData] = await Promise.all([
-        subscriptionService.getSubscriptions({ search: searchTerm, filters }),
-        subscriptionService.getSubscriptionStats()
+      const [subscriptionsResponse, statsData] = await Promise.all([
+        apiService.getAll({ 
+          search: searchTerm, 
+          filters,
+          limit: -1 // Obtener todas para simplicidad
+        }),
+        apiService.getStats()
       ]);
       
-      setSubscriptions(subscriptionsData.data);
+      setSubscriptions(subscriptionsResponse.data);
       setStats(statsData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error loading data');
+      const errorMessage = err instanceof Error ? err.message : 'Error loading data';
+      setError(errorMessage);
+      console.error('Error fetching subscriptions:', err);
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, filters]); // Solo depende de searchTerm y filters
+  }, [apiService, searchTerm, filters]);
 
-  // Cargar datos iniciales solo una vez
+  // Cargar datos iniciales
   useEffect(() => {
     fetchData(true);
-  }, []); // Array vacío para ejecutar solo al montar
+  }, []);
 
-  // Búsqueda con debounce para evitar llamadas excesivas
+  // Búsqueda con debounce
   useEffect(() => {
-    if (subscriptions.length === 0) return; // No buscar si no hay datos iniciales
+    if (subscriptions.length === 0) return;
     
     const timeoutId = setTimeout(() => {
       fetchData();
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm, filters]); // Removido fetchData de las dependencias
+  }, [searchTerm, filters, fetchData]);
 
-  // Handlers para CRUD operations
+  // ✅ Handlers CRUD usando servicios especializados
   const handleCreate = async (data: CreateSubscriptionData) => {
     try {
       setIsSubmitting(true);
-      await subscriptionService.createSubscription(data);
+      
+      // ✅ Validar usando validador especializado
+      const validation = validateCreateSubscription(data);
+      if (!validation.isValid) {
+        const errorMessages = validation.errors.map(e => e.message).join(', ');
+        throw new Error(`Validation errors: ${errorMessages}`);
+      }
+
+      await apiService.create(data);
       await fetchData(true);
       setViewMode('list');
     } catch (error) {
@@ -103,8 +133,16 @@ export const SubscriptionsView = () => {
     
     try {
       setIsSubmitting(true);
+      
+      // ✅ Validar usando validador especializado
+      const validation = validateUpdateSubscription(data);
+      if (!validation.isValid) {
+        const errorMessages = validation.errors.map(e => e.message).join(', ');
+        throw new Error(`Validation errors: ${errorMessages}`);
+      }
+
       const updateData: UpdateSubscriptionData = { ...data };
-      await subscriptionService.updateSubscription(selectedSubscription.id, updateData);
+      await apiService.update(selectedSubscription.id, updateData);
       await fetchData(true);
       setViewMode('list');
       setSelectedSubscription(null);
@@ -133,9 +171,9 @@ export const SubscriptionsView = () => {
       setIsSubmitting(true);
       
       if (itemsToDelete.length === 1) {
-        await subscriptionService.deleteSubscription(itemsToDelete[0]);
+        await apiService.delete(itemsToDelete[0]);
       } else {
-        await subscriptionService.bulkDeleteSubscriptions(itemsToDelete);
+        await apiService.bulkDelete(itemsToDelete);
       }
       
       await fetchData(true);
@@ -144,7 +182,8 @@ export const SubscriptionsView = () => {
       setSelectedSubscription(null);
     } catch (error) {
       console.error('Error deleting subscription(s):', error);
-      setError(error instanceof Error ? error.message : 'Error deleting items');
+      const errorMessage = error instanceof Error ? error.message : 'Error deleting items';
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -152,15 +191,16 @@ export const SubscriptionsView = () => {
 
   const handleStatusChange = async (id: number, status: Subscription['status']) => {
     try {
-      await subscriptionService.changeSubscriptionStatus(id, status);
+      await apiService.changeStatus(id, status);
       await fetchData(true);
     } catch (error) {
       console.error('Error changing status:', error);
-      setError(error instanceof Error ? error.message : 'Error changing status');
+      const errorMessage = error instanceof Error ? error.message : 'Error changing status';
+      setError(errorMessage);
     }
   };
 
-  // Handlers de UI
+  // Handlers de UI (sin cambios)
   const openCreateModal = () => {
     setSelectedSubscription(null);
     setViewMode('create');
@@ -189,21 +229,16 @@ export const SubscriptionsView = () => {
     setShowDeleteModal(false);
   };
 
-  // Utilidades memoizadas
-  const formatCurrency = useCallback((amount: string) => {
-    const num = parseFloat(amount);
-    return num === 0 ? 'Gratis' : `$${num.toFixed(2)}`;
+  // ✅ Utilidades usando formatters especializados
+  const formatCurrencyDisplay = useCallback((amount: string) => {
+    return formatCurrency(amount);
   }, []);
 
-  const formatDate = useCallback((dateString: string) => {
-    return new Date(dateString).toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+  const formatDateDisplay = useCallback((dateString: string) => {
+    return formatRenewalDate(dateString);
   }, []);
 
-  // Configuración de estadísticas memoizada
+  // ✅ Configuración de estadísticas usando formatters
   const statsConfig = useMemo(() => stats ? [
     {
       label: "Total",
@@ -222,12 +257,12 @@ export const SubscriptionsView = () => {
     },
     {
       label: "Costo Total",
-      value: `$${stats.totalCost.toFixed(2)}`,
+      value: formatCurrency(stats.totalCost),
       icon: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" /></svg>
     }
   ] : [], [stats]);
 
-  // Configuración de columnas memoizada
+  // ✅ Configuración de columnas usando formatters especializados
   const columns = useMemo(() => [
     {
       id: 'service',
@@ -247,7 +282,7 @@ export const SubscriptionsView = () => {
       render: (value: string, item: Subscription) => (
         <div className="flex items-center space-x-2">
           <StatusBadge 
-            status={getStatusText(value)} 
+            status={formatStatus(value)} 
             variant={getStatusVariant(value)} 
           />
           <select
@@ -270,7 +305,7 @@ export const SubscriptionsView = () => {
       accessor: 'plan_type' as keyof Subscription,
       render: (value: string) => (
         <StatusBadge 
-          status={getPlanTypeText(value)} 
+          status={formatPlanType(value)} 
           variant={getPlanTypeVariant(value)} 
         />
       )
@@ -280,7 +315,7 @@ export const SubscriptionsView = () => {
       label: 'Ciclo',
       accessor: 'billing_cycle' as keyof Subscription,
       render: (value: string) => (
-        <span className="text-gray-900 text-body">{getBillingCycleText(value)}</span>
+        <span className="text-gray-900 text-body">{formatBillingCycle(value)}</span>
       )
     },
     {
@@ -288,7 +323,7 @@ export const SubscriptionsView = () => {
       label: 'Costo',
       accessor: 'cost' as keyof Subscription,
       render: (value: string) => (
-        <span className="text-gray-900 font-medium text-caption">{formatCurrency(value)}</span>
+        <span className="text-gray-900 font-medium text-caption">{formatCurrencyDisplay(value)}</span>
       )
     },
     {
@@ -296,7 +331,7 @@ export const SubscriptionsView = () => {
       label: 'Renovación',
       accessor: 'renewal_date' as keyof Subscription,
       render: (value: string) => (
-        <span className="text-gray-900 text-body">{formatDate(value)}</span>
+        <span className="text-gray-900 text-body">{formatDateDisplay(value)}</span>
       )
     },
     {
@@ -326,9 +361,9 @@ export const SubscriptionsView = () => {
         </div>
       )
     }
-  ], [formatCurrency, formatDate, handleStatusChange, openViewModal, openEditModal, openDeleteModal]);
+  ], [formatCurrencyDisplay, formatDateDisplay, handleStatusChange, openViewModal, openEditModal, openDeleteModal]);
 
-  // Actions del header memoizado
+  // Actions del header (sin cambios significativos)
   const headerActions = useMemo(() => (
     <div className="flex items-center space-x-3">
       {selectedItems.length > 0 && (
@@ -545,7 +580,7 @@ export const SubscriptionsView = () => {
                 <label className="text-gray-600 text-sm text-caption">Estado</label>
                 <div className="mt-1">
                   <StatusBadge 
-                    status={getStatusText(selectedSubscription.status)} 
+                    status={formatStatus(selectedSubscription.status)} 
                     variant={getStatusVariant(selectedSubscription.status)} 
                   />
                 </div>
@@ -554,7 +589,7 @@ export const SubscriptionsView = () => {
                 <label className="text-gray-600 text-sm text-caption">Tipo de Plan</label>
                 <div className="mt-1">
                   <StatusBadge 
-                    status={getPlanTypeText(selectedSubscription.plan_type)} 
+                    status={formatPlanType(selectedSubscription.plan_type)} 
                     variant={getPlanTypeVariant(selectedSubscription.plan_type)} 
                   />
                 </div>
@@ -564,28 +599,28 @@ export const SubscriptionsView = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 bg-gray-50 rounded-2xl">
                 <label className="text-gray-600 text-sm text-caption">Ciclo de Facturación</label>
-                <p className="text-gray-900 text-body">{getBillingCycleText(selectedSubscription.billing_cycle)}</p>
+                <p className="text-gray-900 text-body">{formatBillingCycle(selectedSubscription.billing_cycle)}</p>
               </div>
               <div className="p-4 bg-gray-50 rounded-2xl">
                 <label className="text-gray-600 text-sm text-caption">Costo</label>
-                <p className="text-gray-900 font-medium text-body">{formatCurrency(selectedSubscription.cost)}</p>
+                <p className="text-gray-900 font-medium text-body">{formatCurrencyDisplay(selectedSubscription.cost)}</p>
               </div>
             </div>
 
             <div className="p-4 bg-gray-50 rounded-2xl">
               <label className="text-gray-600 text-sm text-caption">Fecha de Renovación</label>
-              <p className="text-gray-900 text-body">{formatDate(selectedSubscription.renewal_date)}</p>
+              <p className="text-gray-900 text-body">{formatDateDisplay(selectedSubscription.renewal_date)}</p>
             </div>
 
             <div className="p-4 bg-gray-50 rounded-2xl">
               <label className="text-gray-600 text-sm text-caption">Fecha de Creación</label>
-              <p className="text-gray-900 text-body">{formatDate(selectedSubscription.date_created)}</p>
+              <p className="text-gray-900 text-body">{formatDateDisplay(selectedSubscription.date_created)}</p>
             </div>
 
             {selectedSubscription.date_updated && (
               <div className="p-4 bg-gray-50 rounded-2xl">
                 <label className="text-gray-600 text-sm text-caption">Última Actualización</label>
-                <p className="text-gray-900 text-body">{formatDate(selectedSubscription.date_updated)}</p>
+                <p className="text-gray-900 text-body">{formatDateDisplay(selectedSubscription.date_updated)}</p>
               </div>
             )}
           </div>
