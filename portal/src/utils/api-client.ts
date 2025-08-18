@@ -6,7 +6,12 @@ import type {
   LoginCredentials,
   AuthTokens,
   DirectusUser,
-  Subscription
+  Subscription,
+  Domain,
+  Client,
+  Provider,
+  CreateDomainData,
+  UpdateDomainData
 } from '../types';
 
 import { createApiFactory } from './api/api-factory';
@@ -129,6 +134,58 @@ class ApiClient {
     return this.services.subscription.getById(id);
   }
 
+  // ==================== DOMAIN METHODS (LEGACY) ====================
+
+  /**
+   * Obtener todos los dominios
+   */
+  async getDomains(): Promise<Domain[]> {
+    const response = await this.services.domain.getAll();
+    return response.data;
+  }
+
+  /**
+   * Obtener dominio por ID
+   */
+  async getDomain(id: number): Promise<Domain> {
+    return this.services.domain.getById(id);
+  }
+
+  /**
+   * Crear dominio
+   */
+  async createDomain(data: CreateDomainData): Promise<Domain> {
+    return this.services.domain.create(data);
+  }
+
+  /**
+   * Actualizar dominio
+   */
+  async updateDomain(id: number, data: UpdateDomainData): Promise<Domain> {
+    return this.services.domain.update(id, data);
+  }
+
+  /**
+   * Eliminar dominio
+   */
+  async deleteDomain(id: number): Promise<void> {
+    return this.services.domain.delete(id);
+  }
+
+  /**
+   * Obtener clientes para dropdown
+   */
+  async getClientsForDomains(): Promise<Client[]> {
+    return this.services.domain.getClients();
+  }
+
+  /**
+   * Obtener proveedores para dropdown
+   */
+  async getProvidersForDomains(): Promise<Provider[]> {
+    return this.services.domain.getProviders();
+  }
+
   // ==================== GENERIC REQUEST METHOD (LEGACY) ====================
 
   /**
@@ -218,6 +275,10 @@ class ApiClient {
     return this.services.subscription;
   }
 
+  getDomainService() {
+    return this.services.domain;
+  }
+
   /**
    * Acceso directo a la factory (para casos avanzados)
    */
@@ -264,7 +325,8 @@ export const getApiServices = (): ApiServices => {
     file: client.getFileService(),
     health: client.getHealthService(),
     maintenance: client.getMaintenanceService(),
-    subscription: client.getSubscriptionService()
+    subscription: client.getSubscriptionService(),
+    domain: client.getDomainService()
   };
 };
 

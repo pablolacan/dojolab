@@ -635,7 +635,7 @@ export const SubscriptionsView = () => {
         footer={
           <div className="flex space-x-3">
             <button
-              onClick={() => handleDelete()}
+              onClick={() => handleDelete(selectedSubscription?.id)}
               disabled={isSubmitting}
               className="bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 disabled:opacity-50 transition-all duration-200 font-medium"
             >

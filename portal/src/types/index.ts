@@ -109,3 +109,5 @@ export interface AppConfig {
   isDevelopment: boolean;
   maintenanceAllowedIPs: string[];
 }
+
+export * from './domain';

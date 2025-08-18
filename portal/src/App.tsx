@@ -4,14 +4,15 @@ import { Login } from "./components/Login";
 import { Layout } from "./components/layout/Layout";
 import { DashboardView } from "./components/views/DashboardView";
 import { SubscriptionsView } from "./components/views/SubscriptionsView";
+import { DomainsView } from "./components/views/DomainView";
 import { PWABanner } from "./components/PWABanner";
 import { createApiClient } from "./utils/api-client";
 import { config } from "./utils/config";
 
-// ⭐ INICIALIZAR API CLIENT PRIMERO - ANTES DE OTROS IMPORTS
+// API CLIENT
 createApiClient(config.directusUrl);
 
-// Ahora importar componentes que usan el API client
+// Componentes que usan el API client
 import { useMaintenance } from "./hooks/useMaintenance";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
@@ -96,6 +97,8 @@ const DashboardContent = () => {
         return <DashboardView user={user} />;
       case 'subscriptions':
         return <SubscriptionsView />;
+      case 'domains':
+        return <DomainsView />;
       case 'settings':
         return (
           <div className="text-center py-12">
