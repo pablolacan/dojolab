@@ -43,6 +43,15 @@ export const Sidebar = ({ activeView, onViewChange }: SidebarProps) => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8a4 4 0 100-8 4 4 0 000 8zm0 2c-3.866 0-7 3.134-7 7v1h14v-1c0-3.866-3.134-7-7-7z" />
         </svg>
       )
+    },
+    {
+      id: 'invoices',
+      label: 'Facturas',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M6.938 20h10.124c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 17.5c-.77.833.192 2.5 1.732 2.5z" />
+        </svg>
+      )
     }
   ];
 

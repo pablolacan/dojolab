@@ -12,6 +12,7 @@ import { MaintenanceService } from '../../services/api/maintenance-service';
 import { SubscriptionApiService } from '../../services/api/subscription-service';
 import { DomainService } from '../../services/api/domain-service';
 import { ClientService } from '../../services/api/client-service';
+import { InvoiceService } from '../../services/api/invoice-service';
 
 import type { 
   AuthServiceConfig,
@@ -39,6 +40,7 @@ export interface ApiServices {
   subscription: SubscriptionApiService;
   domain: DomainService;
   client: ClientService;
+  invoice: InvoiceService;
 }
 
 export interface ApiUtilities {
@@ -110,7 +112,8 @@ export class ApiFactory {
       maintenance: new MaintenanceService(utilities.httpClient, serviceConfig),
       subscription: new SubscriptionApiService(utilities.httpClient),
       domain: new DomainService(utilities.httpClient),
-      client: new ClientService(utilities.httpClient)
+      client: new ClientService(utilities.httpClient),
+      invoice: new InvoiceService(utilities.httpClient)
     };
 
     return this.services;

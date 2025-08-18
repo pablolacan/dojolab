@@ -5,6 +5,7 @@ export interface Invoice {
   client_id: number | import('./client').Client;
   invoice_number: string;
   invoice_date: string;
+  date_due: string;
   amount: string; // Decimal as string from Directus
   invoice_file?: string; // UUID reference to directus_files
   status: 'draft' | 'sent' | 'paid' | 'overdue';

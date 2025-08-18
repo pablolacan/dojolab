@@ -362,6 +362,10 @@ class ApiClient {
     return this.services.client;
   }
 
+  getInvoiceService() {
+    return this.services.invoice;
+  }
+
   /**
    * Acceso directo a la factory (para casos avanzados)
    */
@@ -410,7 +414,8 @@ export const getApiServices = (): ApiServices => {
     maintenance: client.getMaintenanceService(),
     subscription: client.getSubscriptionService(),
     domain: client.getDomainService(),
-    client: client.getClientService()
+    client: client.getClientService(),
+    invoice: client.getInvoiceService()
   };
 };
 
