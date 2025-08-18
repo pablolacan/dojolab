@@ -9,7 +9,6 @@ import type {
   Subscription,
   Domain,
   Client,
-  Provider,
   CreateDomainData,
   UpdateDomainData
 } from '../types';
@@ -134,6 +133,86 @@ class ApiClient {
     return this.services.subscription.getById(id);
   }
 
+    // ==================== CLIENT METHODS (LEGACY) ====================
+
+  /**
+   * Obtener todos los clientes
+   */
+  async getClients(): Promise<Client[]> {
+    const response = await this.services.client.getAll();
+    return response.data;
+  }
+
+  /**
+   * Obtener cliente por ID
+   */
+  async getClient(id: number): Promise<Client> {
+    return this.services.client.getById(id);
+  }
+
+  /**
+   * Obtener cliente con relaciones (dominios, facturas)
+   */
+  async getClientWithRelations(id: number): Promise<import('../types/client').ClientWithRelations> {
+    return this.services.client.getByIdWithRelations(id);
+  }
+
+  /**
+   * Crear cliente
+   */
+  async createClient(data: import('../types/client').CreateClientData): Promise<Client> {
+    return this.services.client.create(data);
+  }
+
+  /**
+   * Actualizar cliente
+   */
+  async updateClient(id: number, data: import('../types/client').UpdateClientData): Promise<Client> {
+    return this.services.client.update(id, data);
+  }
+
+  /**
+   * Eliminar cliente
+   */
+  async deleteClient(id: number): Promise<void> {
+    return this.services.client.delete(id);
+  }
+
+  /**
+   * Cambiar estado del cliente
+   */
+  async changeClientStatus(id: number, status: Client['status']): Promise<Client> {
+    return this.services.client.changeStatus(id, status);
+  }
+
+  /**
+   * Buscar clientes
+   */
+  async searchClients(searchTerm: string): Promise<Client[]> {
+    return this.services.client.search(searchTerm);
+  }
+
+  /**
+   * Obtener opciones de clientes para dropdown
+   */
+  async getClientOptions(): Promise<import('../types/client').ClientOption[]> {
+    return this.services.client.getOptions();
+  }
+
+  /**
+   * Verificar si email existe
+   */
+  async checkClientEmailExists(email: string, excludeId?: number): Promise<boolean> {
+    return this.services.client.checkEmailExists(email, excludeId);
+  }
+
+  /**
+   * Obtener estadísticas de clientes
+   */
+  async getClientStats(): Promise<import('../types/client').ClientStats> {
+    return this.services.client.getStats();
+  }
+
   // ==================== DOMAIN METHODS (LEGACY) ====================
 
   /**
@@ -166,25 +245,25 @@ class ApiClient {
   }
 
   /**
-   * Eliminar dominio
-   */
-  async deleteDomain(id: number): Promise<void> {
-    return this.services.domain.delete(id);
-  }
+     * Eliminar dominio
+     */
+    async deleteDomain(id: number): Promise<void> {
+      return this.services.domain.delete(id);
+    }
 
-  /**
-   * Obtener clientes para dropdown
-   */
-  async getClientsForDomains(): Promise<Client[]> {
-    return this.services.domain.getClients();
-  }
+    /**
+     * Obtener clientes para dropdown
+     */
+    async getClientsForDomains(): Promise<Client[]> {
+      return this.services.domain.getClients();
+    }
 
-  /**
-   * Obtener proveedores para dropdown
-   */
-  async getProvidersForDomains(): Promise<Provider[]> {
-    return this.services.domain.getProviders();
-  }
+    /**
+     * Obtener proveedores para dropdown
+     */
+    async getProvidersForDomains(): Promise<import('../types/domain').Provider[]> {
+      return this.services.domain.getProviders();
+    }
 
   // ==================== GENERIC REQUEST METHOD (LEGACY) ====================
 
@@ -279,6 +358,10 @@ class ApiClient {
     return this.services.domain;
   }
 
+  getClientService() {
+    return this.services.client;
+  }
+
   /**
    * Acceso directo a la factory (para casos avanzados)
    */
@@ -326,7 +409,8 @@ export const getApiServices = (): ApiServices => {
     health: client.getHealthService(),
     maintenance: client.getMaintenanceService(),
     subscription: client.getSubscriptionService(),
-    domain: client.getDomainService()
+    domain: client.getDomainService(),
+    client: client.getClientService()
   };
 };
 

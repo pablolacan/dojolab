@@ -11,6 +11,7 @@ import { HealthService } from '../../services/api/health-service';
 import { MaintenanceService } from '../../services/api/maintenance-service';
 import { SubscriptionApiService } from '../../services/api/subscription-service';
 import { DomainService } from '../../services/api/domain-service';
+import { ClientService } from '../../services/api/client-service';
 
 import type { 
   AuthServiceConfig,
@@ -37,6 +38,7 @@ export interface ApiServices {
   maintenance: MaintenanceService;
   subscription: SubscriptionApiService;
   domain: DomainService;
+  client: ClientService;
 }
 
 export interface ApiUtilities {
@@ -107,7 +109,8 @@ export class ApiFactory {
       health: new HealthService(utilities.httpClient, serviceConfig),
       maintenance: new MaintenanceService(utilities.httpClient, serviceConfig),
       subscription: new SubscriptionApiService(utilities.httpClient),
-      domain: new DomainService(utilities.httpClient)
+      domain: new DomainService(utilities.httpClient),
+      client: new ClientService(utilities.httpClient)
     };
 
     return this.services;

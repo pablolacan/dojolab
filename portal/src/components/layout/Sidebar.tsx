@@ -35,6 +35,15 @@ export const Sidebar = ({ activeView, onViewChange }: SidebarProps) => {
         </svg>
       )
     },
+    {
+      id: 'clients',
+      label: 'Clientes',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8a4 4 0 100-8 4 4 0 000 8zm0 2c-3.866 0-7 3.134-7 7v1h14v-1c0-3.866-3.134-7-7-7z" />
+        </svg>
+      )
+    }
   ];
 
   return (

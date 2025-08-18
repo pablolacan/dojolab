@@ -5,6 +5,7 @@ import { Layout } from "./components/layout/Layout";
 import { DashboardView } from "./components/views/DashboardView";
 import { SubscriptionsView } from "./components/views/SubscriptionsView";
 import { DomainsView } from "./components/views/DomainView";
+import { ClientsView } from "./components/views/ClientsView";
 import { PWABanner } from "./components/PWABanner";
 import { createApiClient } from "./utils/api-client";
 import { config } from "./utils/config";
@@ -99,6 +100,8 @@ const DashboardContent = () => {
         return <SubscriptionsView />;
       case 'domains':
         return <DomainsView />;
+      case 'clients':
+        return <ClientsView />;
       case 'settings':
         return (
           <div className="text-center py-12">
