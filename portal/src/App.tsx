@@ -1,34 +1,287 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 
-function App() {
-  const [count, setCount] = useState(0)
+// Background component
+import { AuroraBackground } from './components/ui/AuroraBackground';
 
-  return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+// Auth components
+import { Login } from './modules/auth/Login';
+
+// Store
+import { useAuth } from './stores/auth-store';
+
+// Utils
+import { maintenance } from './lib/utils/maintenance';
+import { testConnection } from './lib/directus';
+
+// Protected Route Component
+interface ProtectedRouteProps {
+  children: React.ReactNode;
 }
 
-export default App
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const { isAuthenticated } = useAuth();
+  
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Public Route Component (redirect if authenticated)
+const PublicRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const { isAuthenticated } = useAuth();
+  
+  if (isAuthenticated()) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Dashboard placeholder component
+const Dashboard: React.FC = () => {
+  const { user, logout } = useAuth();
+  
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="text-center space-y-4">
+        <h1 className="text-3xl font-bold font-heading text-slate-900">
+          Welcome to Dashboard!
+        </h1>
+        <p className="text-slate-600">
+          Hello {user?.first_name || user?.email}!
+        </p>
+        <button
+          onClick={logout}
+          className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+        >
+          Logout
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Maintenance page
+const MaintenancePage: React.FC = () => {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="text-center space-y-4">
+        <h1 className="text-3xl font-bold font-heading text-slate-900">
+          🔧 Maintenance Mode
+        </h1>
+        <p className="text-slate-600 max-w-md">
+          We're currently performing maintenance on our systems. 
+          Please check back in a few minutes.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// Error boundary fallback
+const ErrorFallback: React.FC<{ error: Error }> = ({ error }) => {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="text-center space-y-4">
+        <h1 className="text-3xl font-bold font-heading text-red-600">
+          Something went wrong
+        </h1>
+        <p className="text-slate-600 max-w-md">
+          {error.message || 'An unexpected error occurred'}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+        >
+          Reload Page
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Error Boundary Component
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('App Error Boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError && this.state.error) {
+      return <ErrorFallback error={this.state.error} />;
+    }
+
+    return this.props.children;
+  }
+}
+
+// Main App Component
+const App: React.FC = () => {
+  const { initialize, isInitialized, isLoading } = useAuth();
+  const [connectionStatus, setConnectionStatus] = React.useState<{
+    isConnected: boolean;
+    isChecking: boolean;
+  }>({
+    isConnected: true,
+    isChecking: true
+  });
+
+  // Initialize auth and check connection on app start
+  useEffect(() => {
+    const initializeApp = async () => {
+      try {
+        console.log('🚀 Initializing app...');
+        
+        // Check maintenance mode
+        if (maintenance.isActive()) {
+          console.log('🔧 Maintenance mode is active');
+          // In a real app, you'd check IP here
+          // For now, we'll just show maintenance page
+        }
+        
+        // Test Directus connection
+        const isConnected = await testConnection();
+        setConnectionStatus({ isConnected, isChecking: false });
+        
+        if (isConnected) {
+          // Initialize auth store
+          await initialize();
+        } else {
+          console.error('❌ Failed to connect to Directus');
+        }
+        
+      } catch (error) {
+        console.error('❌ App initialization failed:', error);
+        setConnectionStatus({ isConnected: false, isChecking: false });
+      }
+    };
+
+    initializeApp();
+  }, [initialize]);
+
+  // Show loading screen while initializing
+  if (connectionStatus.isChecking || !isInitialized || isLoading) {
+    return (
+      <AuroraBackground>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center space-y-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="text-slate-600">
+              {connectionStatus.isChecking ? 'Connecting...' : 'Loading...'}
+            </p>
+          </div>
+        </div>
+      </AuroraBackground>
+    );
+  }
+
+  // Show connection error
+  if (!connectionStatus.isConnected) {
+    return (
+      <AuroraBackground>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center space-y-4">
+            <h1 className="text-2xl font-bold font-heading text-red-600">
+              Connection Error
+            </h1>
+            <p className="text-slate-600 max-w-md">
+              Unable to connect to the server. Please check your connection and try again.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </AuroraBackground>
+    );
+  }
+
+  // Show maintenance page
+  if (maintenance.isActive()) {
+    return (
+      <AuroraBackground>
+        <MaintenancePage />
+      </AuroraBackground>
+    );
+  }
+
+  // Main app routes
+  return (
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuroraBackground>
+          <AnimatePresence mode="wait">
+            <Routes>
+              {/* Public routes */}
+              <Route 
+                path="/login" 
+                element={
+                  <PublicRoute>
+                    <Login />
+                  </PublicRoute>
+                } 
+              />
+              
+              {/* Protected routes */}
+              <Route 
+                path="/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <Dashboard />
+                  </ProtectedRoute>
+                } 
+              />
+              
+              {/* Default redirect */}
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              
+              {/* 404 fallback */}
+              <Route 
+                path="*" 
+                element={
+                  <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="text-center space-y-4">
+                      <h1 className="text-3xl font-bold font-heading text-slate-900">
+                        404 - Page Not Found
+                      </h1>
+                      <p className="text-slate-600">
+                        The page you're looking for doesn't exist.
+                      </p>
+                      <a 
+                        href="/dashboard"
+                        className="inline-block px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                      >
+                        Go to Dashboard
+                      </a>
+                    </div>
+                  </div>
+                } 
+              />
+            </Routes>
+          </AnimatePresence>
+        </AuroraBackground>
+      </BrowserRouter>
+    </ErrorBoundary>
+  );
+};
+
+export default App;
