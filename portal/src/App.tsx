@@ -5,6 +5,9 @@ import { AnimatePresence } from 'framer-motion';
 // Store
 import { useAuth } from './stores/auth-store';
 
+// Components
+import Login from './modules/auth/Login';
+
 // Utils
 import { maintenance } from './lib/utils/maintenance';
 import { testConnection } from './lib/directus';
