@@ -1,9 +1,15 @@
+// src/App.tsx
+
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 
 // Store
 import { useAuth } from './stores/auth-store';
+
+// Layouts
+import { DashboardLayout } from './layouts/DashboardLayout';
+import DashboardHome from './modules/dashboard/DashboardHome';
 
 // Components
 import Login from './modules/auth/Login';
@@ -38,29 +44,18 @@ const PublicRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   return <>{children}</>;
 };
 
-// Dashboard placeholder component
+// Dashboard home placeholder component
 const Dashboard: React.FC = () => {
-  const { user, logout } = useAuth();
-  
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="text-center space-y-4">
-        <h1 className="text-3xl font-bold font-heading text-slate-900">
-          Welcome to Dashboard!
-        </h1>
-        <p className="text-slate-600">
-          Hello {user?.first_name || user?.email}!
-        </p>
-        <button
-          onClick={logout}
-          className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-        >
-          Logout
-        </button>
-      </div>
-    </div>
-  );
+  return <DashboardHome />;
 };
+
+// Placeholder components for routes
+const ClientsPage = () => <div className="text-white">Clients page - Coming soon</div>;
+const ServicesPage = () => <div className="text-white">Services page - Coming soon</div>;
+const DomainsPage = () => <div className="text-white">Domains page - Coming soon</div>;
+const InvoicesPage = () => <div className="text-white">Invoices page - Coming soon</div>;
+const SubscriptionsPage = () => <div className="text-white">Subscriptions page - Coming soon</div>;
+const ProvidersPage = () => <div className="text-white">Providers page - Coming soon</div>;
 
 // Maintenance page
 const MaintenancePage: React.FC = () => {
@@ -148,8 +143,7 @@ const App: React.FC = () => {
         // Check maintenance mode
         if (maintenance.isActive()) {
           console.log('🔧 Maintenance mode is active');
-          // In a real app, you'd check IP here
-          // For now, we'll just show maintenance page
+          return;
         }
         
         // Test Directus connection
@@ -174,64 +168,73 @@ const App: React.FC = () => {
 
   // Show maintenance page
   if (maintenance.isActive()) {
-    return (
-        <MaintenancePage />
-    );
+    return <MaintenancePage />;
   }
 
   // Main app routes
   return (
     <ErrorBoundary>
       <BrowserRouter>
-          <AnimatePresence mode="wait">
-            <Routes>
-              {/* Public routes */}
-              <Route 
-                path="/login" 
-                element={
-                  <PublicRoute>
-                    <Login />
-                  </PublicRoute>
-                } 
-              />
+        <AnimatePresence mode="wait">
+          <Routes>
+            {/* Public routes */}
+            <Route 
+              path="/login" 
+              element={
+                <PublicRoute>
+                  <Login />
+                </PublicRoute>
+              } 
+            />
+            
+            {/* Protected dashboard routes */}
+            <Route 
+              path="/" 
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              }
+            >
+              {/* Dashboard home */}
+              <Route path="dashboard" element={<Dashboard />} />
               
-              {/* Protected routes */}
-              <Route 
-                path="/dashboard" 
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                } 
-              />
+              {/* Main modules */}
+              <Route path="clients" element={<ClientsPage />} />
+              <Route path="services" element={<ServicesPage />} />
+              <Route path="domains" element={<DomainsPage />} />
+              <Route path="invoices" element={<InvoicesPage />} />
+              <Route path="subscriptions" element={<SubscriptionsPage />} />
+              <Route path="providers" element={<ProvidersPage />} />
               
               {/* Default redirect */}
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              
-              {/* 404 fallback */}
-              <Route 
-                path="*" 
-                element={
-                  <div className="min-h-screen flex items-center justify-center p-4">
-                    <div className="text-center space-y-4">
-                      <h1 className="text-3xl font-bold font-heading text-slate-900">
-                        404 - Page Not Found
-                      </h1>
-                      <p className="text-slate-600">
-                        The page you're looking for doesn't exist.
-                      </p>
-                      <a 
-                        href="/dashboard"
-                        className="inline-block px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                      >
-                        Go to Dashboard
-                      </a>
-                    </div>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+            </Route>
+            
+            {/* 404 fallback */}
+            <Route 
+              path="*" 
+              element={
+                <div className="min-h-screen flex items-center justify-center p-4 bg-zinc-950">
+                  <div className="text-center space-y-4">
+                    <h1 className="text-3xl font-bold font-heading text-white">
+                      404 - Page Not Found
+                    </h1>
+                    <p className="text-zinc-400">
+                      The page you're looking for doesn't exist.
+                    </p>
+                    <a 
+                      href="/dashboard"
+                      className="inline-block px-4 py-2 bg-lime-300 text-zinc-900 rounded-lg hover:bg-lime-400 transition-colors font-semibold"
+                    >
+                      Go to Dashboard
+                    </a>
                   </div>
-                } 
-              />
-            </Routes>
-          </AnimatePresence>
+                </div>
+              } 
+            />
+          </Routes>
+        </AnimatePresence>
       </BrowserRouter>
     </ErrorBoundary>
   );
